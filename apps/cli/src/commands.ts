@@ -18,12 +18,22 @@ import {
   TrackedState,
   ValidationError,
   type ExecutionPlan,
+  type RunMode,
   type RunState,
   type TestPlan,
+  type WebsiteUnderstandingProfile,
 } from "@browserswarm/core";
 import { generateExecutionPlan, renderExecutionPlanReview } from "@browserswarm/execution-planner";
 import { executeApprovedPlan, type RunResult } from "@browserswarm/orchestrator";
-import { compilePrompt, loadPlanFile, serializePlanYaml, validatePlan } from "@browserswarm/plan-compiler";
+import {
+  compilePrompt,
+  loadPlanFile,
+  resolveRunMode,
+  serializePlanYaml,
+  validatePlan,
+} from "@browserswarm/plan-compiler";
+import { renderAutonomousReview, validatePlanAgainstProfile } from "@browserswarm/autonomous-planner";
+import { loadProfile, runAutonomous, type AutonomousOptions, type ScopeFlags } from "./autonomous.js";
 import { renderMarkdownReport } from "@browserswarm/reporters";
 import {
   atomicWriteFile,
@@ -65,7 +75,7 @@ async function loadPlan(io: CliIO, file: string) {
 
 async function loadPlanFromOptions(
   io: CliIO,
-  opts: { plan?: string; prompt?: string; url?: string; allowedDomain?: string[] },
+  opts: { plan?: string; prompt?: string; promptText?: string; url?: string; allowedDomain?: string[] },
 ): Promise<{
   plan: TestPlan;
   promptText?: string;
@@ -75,7 +85,7 @@ async function loadPlanFromOptions(
     const loaded = await loadPlan(io, opts.plan);
     return { plan: loaded.plan, rawPlanText: loaded.rawText };
   }
-  if (opts.prompt) {
+  if (opts.prompt || opts.promptText !== undefined) {
     // Precedence: --url flag, then the central BROWSERSWARM_TARGET_URL setting.
     const envTarget = targetFromEnv(io.env);
     const url = opts.url ?? envTarget?.url;
@@ -90,13 +100,15 @@ async function loadPlanFromOptions(
       : !opts.url && io.env[ENV.ALLOWED_DOMAINS]
         ? envTarget?.allowedDomains
         : undefined;
-    const promptText = await readFile(abs(io, opts.prompt), "utf8");
+    const promptText = opts.prompt ? await readFile(abs(io, opts.prompt), "utf8") : (opts.promptText ?? "");
     const compiled = compilePrompt({ promptText, url, ...(allowedDomains ? { allowedDomains } : {}) });
     for (const a of compiled.assumptions) err(io, `assumption: ${a}`);
     for (const a of compiled.ambiguities) err(io, `ambiguity: ${a}`);
     return { plan: compiled.plan, promptText };
   }
-  throw new ValidationError("missing option", ["provide --plan <file> or --prompt <file>"]);
+  throw new ValidationError("missing option", [
+    "provide --plan <file>, --prompt <file> or --prompt-text <text>",
+  ]);
 }
 
 async function readExecutionPlan(file: string): Promise<ExecutionPlan> {
@@ -146,18 +158,22 @@ export async function cmdValidate(io: CliIO, opts: { plan: string }): Promise<nu
 /** `preview`: generate the exact execution plan and print the approval review. Starts no browser. */
 export async function cmdPreview(
   io: CliIO,
-  opts: { plan: string; parallel?: number; write?: string; runId?: string },
+  opts: { plan: string; parallel?: number; write?: string; runId?: string; profile?: string },
 ): Promise<number> {
   const { plan } = await loadPlan(io, opts.plan);
+  const profile = opts.profile ? await checkedProfile(io, plan, opts.profile) : undefined;
   const ep = generateExecutionPlan(plan, {
     ...(opts.parallel ? { parallel: opts.parallel } : {}),
     ...(opts.runId ? { runId: opts.runId } : {}),
   });
-  out(io, renderExecutionPlanReview(ep));
+  out(io, profile ? renderAutonomousReview(profile, plan, ep) : renderExecutionPlanReview(ep));
   if (opts.write) {
     await atomicWriteFile(abs(io, opts.write), `${stableStringify(ep)}\n`);
     out(io, `Execution plan written to ${opts.write}`);
-    out(io, `Approve with: browserswarm approve --plan ${opts.plan} --execution-plan ${opts.write}`);
+    out(
+      io,
+      `Approve with: browserswarm approve --plan ${opts.plan}${opts.profile ? ` --profile ${opts.profile}` : ""} --execution-plan ${opts.write}`,
+    );
   }
   return EXIT.OK;
 }
@@ -208,12 +224,13 @@ function operatorName(io: CliIO, opts: DecisionOptions): string {
 /** `approve`: bind an approval record to the exact execution plan and write the immutable approved plan. */
 export async function cmdApprove(
   io: CliIO,
-  opts: DecisionOptions & { plan: string; executionPlan: string; output?: string },
+  opts: DecisionOptions & { plan: string; executionPlan: string; output?: string; profile?: string },
 ): Promise<number> {
   const { plan } = await loadPlan(io, opts.plan);
+  const profile = opts.profile ? await checkedProfile(io, plan, opts.profile) : undefined;
   const epPath = abs(io, opts.executionPlan);
   const ep = await readExecutionPlan(epPath);
-  out(io, renderExecutionPlanReview(ep));
+  out(io, profile ? renderAutonomousReview(profile, plan, ep) : renderExecutionPlanReview(ep));
   const d = await decide(io, ep, opts);
   const dir = path.dirname(epPath);
   return finishDecision(io, {
@@ -224,7 +241,16 @@ export async function cmdApprove(
     dir,
     ...(opts.output ? { output: abs(io, opts.output) } : {}),
     planPath: opts.plan,
+    ...(profile ? { discoveryProfileHash: profile.profileHash } : {}),
   });
+}
+
+/** Loads a profile and checks that the (possibly edited) autonomous plan still matches it. */
+async function checkedProfile(io: CliIO, plan: TestPlan, file: string): Promise<WebsiteUnderstandingProfile> {
+  const profile = await loadProfile(io, file);
+  const errors = validatePlanAgainstProfile(plan, profile);
+  if (errors.length) throw new ValidationError("plan does not match the discovery profile", errors);
+  return profile;
 }
 
 async function finishDecision(
@@ -237,6 +263,7 @@ async function finishDecision(
     dir: string;
     output?: string;
     planPath?: string;
+    discoveryProfileHash?: string;
   },
 ): Promise<number> {
   const { plan, ep, decision } = args;
@@ -246,6 +273,7 @@ async function finishDecision(
     decision: decision.decision,
     mode: decision.mode,
     operator: args.operator,
+    ...(args.discoveryProfileHash ? { discoveryProfileHash: args.discoveryProfileHash } : {}),
     ...(decision.riskAcceptance ? { riskAcceptance: decision.riskAcceptance } : {}),
   });
   switch (decision.decision) {
@@ -280,10 +308,17 @@ async function finishDecision(
   return EXIT.INVALID;
 }
 
-export interface RunCommandOptions extends DecisionOptions {
+export interface RunCommandOptions extends DecisionOptions, ScopeFlags {
   approvedPlan?: string;
   plan?: string;
   prompt?: string;
+  promptText?: string;
+  mode?: RunMode;
+  confirmAuthorized?: boolean;
+  discoveryConfig?: string;
+  /** Test seams (not CLI flags). */
+  discoveryLauncher?: AutonomousOptions["discoveryLauncher"];
+  runLauncher?: AutonomousOptions["runLauncher"];
   url?: string;
   allowedDomain?: string[];
   parallel?: number;
@@ -314,11 +349,40 @@ export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortS
       outputDir,
       env: io.env,
       ...(currentPlan ? { currentPlan } : {}),
+      ...(opts.runLauncher ? { launcher: opts.runLauncher } : {}),
       ...(signal ? { signal } : {}),
     });
     printRunSummary(io, result);
     return result.exitCode;
   }
+
+  // Mode: --mode wins; a structured plan is instruction-led; a prompt is inspected; a URL alone is autonomous.
+  if (opts.mode === "autonomous" && opts.plan)
+    throw new ValidationError("--mode autonomous cannot be combined with --plan", [
+      "a structured plan is instruction-led; drop --plan to discover the site, or drop --mode",
+    ]);
+  const promptText = opts.prompt ? await readFile(abs(io, opts.prompt), "utf8") : opts.promptText;
+  const mode = resolveRunMode({
+    ...(opts.mode ? { explicitMode: opts.mode } : {}),
+    planProvided: !!opts.plan,
+    ...(promptText !== undefined ? { promptText } : {}),
+  });
+  if (mode.mode === "autonomous") {
+    return runAutonomous(
+      io,
+      {
+        ...opts,
+        ...(promptText !== undefined ? { promptText } : {}),
+        mode,
+      },
+      signal,
+    );
+  }
+  if (!opts.plan && promptText === undefined)
+    throw new ValidationError("instruction-led mode needs instructions", [
+      "provide --plan <file>, --prompt <file> or --prompt-text <text>, or use --mode autonomous",
+    ]);
+  for (const r of mode.reasons) out(io, `Mode: instruction-led (${r})`);
 
   const history: { state: RunState; at: string; reason?: string }[] = [];
   const state = new TrackedState<RunState>(runStateMachine, "DRAFT", (_f, to, reason) =>
@@ -329,7 +393,12 @@ export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortS
     ),
   );
   history.push({ state: "DRAFT", at: new Date().toISOString() });
-  const { plan, promptText, rawPlanText } = await loadPlanFromOptions(io, opts);
+  const { plan, rawPlanText } = await loadPlanFromOptions(io, {
+    ...(opts.plan ? { plan: opts.plan } : {}),
+    ...(promptText !== undefined && !opts.plan ? { promptText } : {}),
+    ...(opts.url ? { url: opts.url } : {}),
+    ...(opts.allowedDomain ? { allowedDomain: opts.allowedDomain } : {}),
+  });
   state.to("COMPILED");
   const validation = validatePlan(plan);
   reportValidation(io, validation.errors, validation.warnings);
@@ -343,7 +412,7 @@ export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortS
 
   const outputDir = abs(io, opts.output ?? path.join("artifacts", ep.runId));
   const storage = new FilesystemStorage(outputDir);
-  if (promptText !== undefined) {
+  if (promptText !== undefined && !opts.plan) {
     await storage.writeText(RunLayout.metadata.originalPrompt, promptText);
     await storage.writeText(RunLayout.metadata.originalPromptHash, `${sha256(promptText)}\n`);
   }
@@ -383,6 +452,7 @@ export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortS
     currentPlan: plan,
     env: io.env,
     priorStateHistory: history,
+    ...(opts.runLauncher ? { launcher: opts.runLauncher } : {}),
     ...(signal ? { signal } : {}),
   });
   printRunSummary(io, result);
@@ -416,3 +486,24 @@ export async function cmdReport(io: CliIO, opts: { run: string }): Promise<numbe
   out(io, md);
   return EXIT.OK;
 }
+
+/** `discover`: authorized read-only discovery, profile, generated plan and review. Executes no test. */
+export async function cmdDiscover(
+  io: CliIO,
+  opts: Omit<AutonomousOptions, "stopAfterPlan" | "mode"> & { prompt?: string },
+  signal?: AbortSignal,
+): Promise<number> {
+  const promptText = opts.prompt ? await readFile(abs(io, opts.prompt), "utf8") : opts.promptText;
+  return runAutonomous(
+    io,
+    {
+      ...opts,
+      ...(promptText !== undefined ? { promptText } : {}),
+      mode: { mode: "autonomous", reasons: ["discover command"] },
+      stopAfterPlan: true,
+    },
+    signal,
+  );
+}
+
+export { cmdAutonomousPlan } from "./autonomous.js";

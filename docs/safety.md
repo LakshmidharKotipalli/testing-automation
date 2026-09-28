@@ -19,6 +19,17 @@ Never done, regardless of configuration: solving CAPTCHAs; bypassing authenticat
 limits, bot protection or paywalls; active exploitation, payload fuzzing, credential attacks, intrusive
 scanning or denial-of-service behavior.
 
+## Autonomous discovery
+
+Autonomous mode's Discovery Lead Agent is read-only by construction: it requires your authorization for the
+stated target, aborts every non-GET/HEAD request and every request outside the allowed domains, blocks
+downloads/popups/dialogs/file choosers/service workers, never types into fields or submits forms, never
+authenticates, and records (never clicks) any control that looks state-changing or whose effect is unknown.
+Cookie banners are only dismissed with a reject/necessary-only control. Generated plans contain only
+`safe-read-only` scenarios; anything requiring credentials, test data or risk approval is listed separately
+and never runs without a separately approved plan and an explicit risk acknowledgement. Details:
+[autonomous-mode.md](autonomous-mode.md).
+
 ## Where the policy engine runs
 
 1. Plan validation: risky steps not allowed by policy make the plan invalid.

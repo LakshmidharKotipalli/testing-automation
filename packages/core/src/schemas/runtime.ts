@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   AgentRoleSchema,
   IsoDateSchema,
+  RunPhaseSchema,
   Sha256Schema,
   SeveritySchema,
   ViewportSizeSchema,
@@ -11,6 +12,11 @@ import { ModelRefSchema } from "./plan.js";
 
 export const RunStateSchema = z.enum([
   "DRAFT",
+  "DISCOVERY_PLANNED",
+  "DISCOVERY_RUNNING",
+  "DISCOVERY_COMPLETED",
+  "WEBSITE_PROFILE_GENERATED",
+  "TEST_PLAN_GENERATED",
   "COMPILED",
   "VALIDATED",
   "EXECUTION_PLAN_GENERATED",
@@ -474,6 +480,8 @@ export const ArtifactEntrySchema = z
       "instance",
       "report",
       "metadata",
+      "discovery",
+      "profile",
     ]),
     sha256: z.string().optional(),
     createdAt: IsoDateSchema,
@@ -501,6 +509,8 @@ export const RunMetadataSchema = z
     planHash: Sha256Schema,
     executionPlanHash: Sha256Schema,
     approvalId: z.string().optional(),
+    phase: RunPhaseSchema.optional(),
+    discoveryProfileHash: Sha256Schema.optional(),
     outputDir: z.string(),
     createdAt: IsoDateSchema,
     updatedAt: IsoDateSchema,

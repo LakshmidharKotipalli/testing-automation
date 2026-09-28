@@ -12,6 +12,11 @@ approves the exact execution plan.
 4. **Decide**: `browserswarm approve` prints the review again and asks: `approve / reject / export / edit`.
 5. **Run**: `browserswarm run --approved-plan approved-execution-plan.json` verifies everything, then runs.
 
+Autonomous mode adds two steps before the plan: an explicit **discovery authorization** (bound to the discovery
+packet hash) and the read-only discovery pass. Its review offers `approve-safe-plan / export-and-edit / reject`,
+and the approval record also binds the Website Understanding Profile hash (`discoveryProfileHash`). See
+[autonomous-mode.md](autonomous-mode.md).
+
 ## What approval binds
 
 The `ApprovalRecord` stores `planHash`, `executionPlanHash`, `riskPlanHash`, the decision, mode

@@ -5,7 +5,7 @@ import { checkUrl, type DomainScope } from "./domains.js";
  * Keyword rules applied to the accessible name / label / text / testId / css of the element a step
  * interacts with. Conservative by design: a false positive only requires an explicit policy opt-in.
  */
-const RISK_RULES: { category: RiskCategory; pattern: RegExp }[] = [
+export const RISK_RULES: { category: RiskCategory; pattern: RegExp }[] = [
   { category: "deletion", pattern: /\b(delete|remove|destroy|erase|purge|deactivate|close account)\b/i },
   { category: "payment", pattern: /\b(pay|payment|pay now|submit payment|add card)\b/i },
   {

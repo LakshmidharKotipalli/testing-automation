@@ -27,6 +27,33 @@ describe("run state machine", () => {
     expect(s.isTerminal()).toBe(true);
   });
 
+  it("supports the autonomous discovery-led lifecycle without skipping states", () => {
+    const s = new TrackedState(runStateMachine, "DRAFT");
+    for (const next of [
+      "DISCOVERY_PLANNED",
+      "DISCOVERY_RUNNING",
+      "DISCOVERY_COMPLETED",
+      "WEBSITE_PROFILE_GENERATED",
+      "TEST_PLAN_GENERATED",
+      "EXECUTION_PLAN_GENERATED",
+      "PENDING_APPROVAL",
+      "APPROVED",
+      "RUNNING",
+      "COMPLETED",
+    ] as const)
+      s.to(next);
+    expect(s.isTerminal()).toBe(true);
+    for (const [from, to] of [
+      ["DISCOVERY_PLANNED", "DISCOVERY_COMPLETED"],
+      ["DISCOVERY_RUNNING", "TEST_PLAN_GENERATED"],
+      ["DISCOVERY_RUNNING", "PENDING_APPROVAL"],
+      ["DISCOVERY_COMPLETED", "EXECUTION_PLAN_GENERATED"],
+      ["TEST_PLAN_GENERATED", "PENDING_APPROVAL"],
+      ["WEBSITE_PROFILE_GENERATED", "APPROVED"],
+    ] as const)
+      expect(runStateMachine.canTransition(from, to)).toBe(false);
+  });
+
   it("only APPROVED can move to RUNNING", () => {
     for (const from of runStateMachine.states) {
       expect(runStateMachine.canTransition(from, "RUNNING")).toBe(from === "APPROVED");

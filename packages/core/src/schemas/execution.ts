@@ -81,6 +81,8 @@ export const WorkPacketSchema = z
     planHash: Sha256Schema,
     riskFlags: z.array(RiskFlagSchema),
     requiresExplicitRiskApproval: z.boolean(),
+    /** Why the planner created this packet (autonomous mode). Optional; absent for instruction-led plans. */
+    rationale: z.string().max(1000).optional(),
     workPacketHash: Sha256Schema,
   })
   .strict();
@@ -148,6 +150,16 @@ export const ExecutionPlanSchema = z
     riskPlanHash: Sha256Schema.nullable(),
     requiresExplicitRiskApproval: z.boolean(),
     limitations: z.array(z.string()),
+    /** Autonomous mode: binds the execution plan to the discovery profile it was generated from. */
+    origin: z
+      .object({
+        mode: z.enum(["instruction-led", "autonomous"]),
+        profileId: z.string().optional(),
+        profileHash: Sha256Schema.optional(),
+        testPlanHash: Sha256Schema,
+      })
+      .strict()
+      .optional(),
     executionPlanHash: Sha256Schema,
   })
   .strict();

@@ -10,12 +10,20 @@ BrowserContext and an isolated artifact directory. They do not independently inv
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `functional`        | Execute the user's exact steps and assertions.                                                                            | Full.                                                                                                                       |
 | `forms`             | Approved form validations; never submits destructive forms without approved risk policy.                                  | Executes approved steps deterministically.                                                                                  |
-| `accessibility`     | Approved axe-core and keyboard/semantic checks on approved routes.                                                        | Executes approved steps; axe-core scans arrive in Milestone 2.                                                              |
+| `accessibility`     | Approved axe-core and keyboard/semantic checks on approved routes.                                                        | Executes approved steps; `run_accessibility_scan` (axe-core) and `inspect_accessibility_tree` available.                    |
 | `responsive`        | Approved scenarios at approved viewports; overflow/layout evidence.                                                       | Executes approved steps; `assert_no_horizontal_overflow` available.                                                         |
 | `visual`            | Approved screenshot checkpoints; LLM visual review only if enabled.                                                       | Executes approved steps and screenshots.                                                                                    |
 | `performance-smoke` | Passive checks only (navigation timing, observable resource failures).                                                    | Executes approved steps.                                                                                                    |
 | `security-smoke`    | Only with `safety.allowSecuritySmoke`; passive client-side observations. No exploitation, fuzzing, scanning or bypassing. | Rejected at validation unless allowed.                                                                                      |
 | `verifier`          | Reproduces approved-scope findings in an isolated context and marks them confirmed, likely, unverified or rejected.       | Assigned by the framework in Milestone 4; findings at or above `verifySeverityAtOrAbove` are marked verification `pending`. |
+
+### Roles selected by the autonomous planner
+
+Only when discovery evidence justifies them (see [autonomous-mode.md](autonomous-mode.md)): `navigation`,
+`content`, `table-data`, `dashboard`, `search-filter`, `forms-read-only`, `functional-ui`,
+`ecommerce-browse-only`, `booking-browse-only`, `domain-consistency`, `accessibility`, `responsive`,
+`console-network`. All run deterministic, safe-read-only steps built from observed routes and locators.
+The Discovery Lead Agent itself is not a test subagent: it is the single read-only packet of the discovery phase.
 
 ## Isolation
 

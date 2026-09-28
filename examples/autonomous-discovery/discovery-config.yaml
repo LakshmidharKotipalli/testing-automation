@@ -1,0 +1,10 @@
+# Discovery limits for a small site. Every value is bounded by the schema; omitted values use the defaults.
+discovery:
+  maxRoutesDiscovered: 60
+  maxRoutesVisited: 30
+  maxNavigationDepth: 4
+  maxDurationMs: 300000
+  maxScreenshots: 30
+  stopWhenNoNewRoutesAfter: 10
+browser:
+  trace: false

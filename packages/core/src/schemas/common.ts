@@ -29,8 +29,76 @@ export const AgentRoleSchema = z.enum([
   "performance-smoke",
   "security-smoke",
   "verifier",
+  // Roles selected by the autonomous planner from discovery evidence (additive; existing plans unchanged).
+  "navigation",
+  "functional-ui",
+  "forms-read-only",
+  "search-filter",
+  "content",
+  "table-data",
+  "dashboard",
+  "ecommerce-browse-only",
+  "booking-browse-only",
+  "console-network",
+  "domain-consistency",
 ]);
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
+
+/** Work phases of a run. Discovery and planning happen before approval; execution only after. */
+export const RunPhaseSchema = z.enum([
+  "discovery",
+  "planning",
+  "approval",
+  "execution",
+  "verification",
+  "reporting",
+]);
+export type RunPhase = z.infer<typeof RunPhaseSchema>;
+
+/** Where a scenario came from. User instructions always outrank discovery-derived scenarios. */
+export const ScenarioSourceSchema = z.enum([
+  "user-instruction",
+  "discovery-route",
+  "discovery-journey",
+  "discovery-quality-signal",
+  "discovery-domain-rule",
+]);
+export type ScenarioSource = z.infer<typeof ScenarioSourceSchema>;
+
+/** Safety class of a scenario. Only safe-read-only scenarios run without extra data, credentials or risk approval. */
+export const ScenarioSafetyClassSchema = z.enum([
+  "safe-read-only",
+  "requires-test-data",
+  "requires-credentials",
+  "requires-risk-approval",
+  "excluded",
+]);
+export type ScenarioSafetyClass = z.infer<typeof ScenarioSafetyClassSchema>;
+
+/**
+ * Pointer to an observation that backs a claim. Excerpts are short, redacted, and never contain form values,
+ * cookies, tokens or raw model output.
+ */
+export const EvidenceReferenceSchema = z
+  .object({
+    evidenceId: z.string().min(1).max(96),
+    kind: z.enum([
+      "route-observation",
+      "dom-extract",
+      "screenshot",
+      "accessibility",
+      "console",
+      "network",
+      "navigation-graph",
+      "heuristic",
+      "llm-classification",
+    ]),
+    route: z.string().max(2000).optional(),
+    artifactPath: z.string().max(500).optional(),
+    excerpt: z.string().max(300),
+  })
+  .strict();
+export type EvidenceReference = z.infer<typeof EvidenceReferenceSchema>;
 
 export const SeveritySchema = z.enum(["critical", "high", "medium", "low", "info"]);
 export type Severity = z.infer<typeof SeveritySchema>;
