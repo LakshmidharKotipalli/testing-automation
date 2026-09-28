@@ -1,0 +1,121 @@
+# BrowserSwarm smoke plan for https://demo.icatusa.org (read-only: no sign-in, no form submission).
+# Set BROWSERSWARM_TARGET_URL=https://demo.icatusa.org in .env before preview/approve/run.
+#
+# The steps are deliberately site-agnostic (page loads, overflow, console/network health) so they run
+# before any page-specific locators are known. After the first run, check the inspect_* evidence under
+# artifacts/<run>/packets/*/dom/ and add any third-party hosts the site needs (CDNs, fonts) to
+# BROWSERSWARM_ALLOWED_DOMAINS: requests to hosts outside the allowlist are blocked by the domain guard.
+# Edit freely: any change requires a fresh execution plan and approval.
+version: 1
+id: icatusa-demo-smoke
+name: ICAT USA Demo Smoke
+mode: scripted
+
+# target: omitted on purpose; the website comes from BROWSERSWARM_TARGET_URL in .env.
+
+browser:
+  engine: chromium
+  headless: true
+  locale: en-US
+  timezoneId: America/New_York
+  trace: true
+  screenshot: only-on-failure
+  navigationTimeoutMs: 45000
+
+execution:
+  maxConcurrentAgents: 4
+  agentTimeoutMs: 180000
+  runTimeoutMs: 900000
+  maxActionsPerAgent: 35
+  failFast: false
+
+llm:
+  strategy: disabled
+
+safety:
+  destructiveActions: deny
+  allowAuthentication: false
+  allowExternalNavigation: false
+  allowFileDownloads: false
+  allowUploads: false
+  allowAccountCreation: false
+  allowPurchases: false
+  allowEmailSending: false
+  redactSensitiveData: true
+  requireEvidenceForFindings: true
+
+viewports:
+  desktop:
+    width: 1440
+    height: 900
+  tablet:
+    width: 768
+    height: 1024
+  mobile:
+    width: 390
+    height: 844
+
+scenarios:
+  - id: home-loads
+    title: Home page loads on the demo site
+    objective: Verify the home page opens on demo.icatusa.org and renders content.
+    priority: high
+    roles:
+      - functional
+    viewports:
+      - desktop
+    expectedOutcome: The home page loads on demo.icatusa.org and shows at least one link.
+    steps:
+      - action: navigate
+        url: /
+      - action: assert_url_contains
+        value: demo.icatusa.org
+      - action: assert_visible
+        locator:
+          role: link
+          nth: 0
+      - action: screenshot
+        name: home-desktop
+        fullPage: true
+      - action: inspect_console_logs
+      - action: inspect_network_failures
+
+  - id: home-responsive
+    title: Home page has no horizontal overflow
+    objective: Verify the home page layout fits tablet and mobile widths.
+    priority: medium
+    roles:
+      - responsive
+    viewports:
+      - tablet
+      - mobile
+    expectedOutcome: The home page renders without horizontal scrolling at each viewport.
+    steps:
+      - action: navigate
+        url: /
+      - action: assert_no_horizontal_overflow
+      - action: screenshot
+        name: home-responsive
+        fullPage: true
+
+  - id: home-health
+    title: Home page has no console errors or failed requests
+    objective: Verify the home page loads cleanly from the browser's point of view.
+    priority: medium
+    roles:
+      - functional
+    viewports:
+      - desktop
+    expectedOutcome: No console errors and no failed network requests on the home page.
+    steps:
+      - action: navigate
+        url: /
+      - action: assert_no_console_errors
+      - action: assert_no_network_failures
+
+reporting:
+  outputDir: ./artifacts
+  formats:
+    - json
+    - markdown
+  verifySeverityAtOrAbove: high
