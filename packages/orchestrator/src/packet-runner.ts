@@ -55,7 +55,7 @@ import {
   type ResolvedTestData,
 } from "@browserswarm/policy-engine";
 import { canonicalize, newId, truncate, type Clock, type Redactor } from "@browserswarm/shared";
-import { EventStore, packetRelative, RunLayout, type StorageAdapter } from "@browserswarm/storage";
+import { packetRelative, RunLayout, type EventStore, type StorageAdapter } from "@browserswarm/storage";
 import type { BrowserContext, Page } from "playwright";
 
 export interface PacketRunnerDeps {

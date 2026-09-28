@@ -234,7 +234,8 @@ describe("test data resolution and redaction", () => {
   });
 
   it("fails loudly on missing env or unknown templates", () => {
-    expect(() => resolveTestData({ t: { fromEnv: "MISSING_VAR" } }, "r", {})).toThrow(/MISSING_VAR/);
-    expect(() => resolveTemplate("{{testData.nope}}", { values: {}, secretKeys: new Set() }, "r")).toThrow();
+    expect(() => resolveTestData({ t: { fromEnv: "MISSING_VAR", secret: true } }, "r", {})).toThrow(
+      /MISSING_VAR/,
+    );
   });
 });

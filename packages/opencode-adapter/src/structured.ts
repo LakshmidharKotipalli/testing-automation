@@ -27,12 +27,12 @@ export interface StructuredResult<T> {
  * `maxRepairAttempts` chances with the validation errors appended (never the original prompt's secrets,
  * which the caller has already excluded).
  */
-export async function generateStructured<T>(
+export async function generateStructured<S extends z.ZodTypeAny>(
   client: LLMClient,
   input: LLMGenerateInput,
-  schema: z.ZodType<T>,
+  schema: S,
   maxRepairAttempts: number,
-): Promise<StructuredResult<T>> {
+): Promise<StructuredResult<z.infer<S>>> {
   const outputs: LLMGenerateOutput[] = [];
   let prompt = input.prompt;
   let lastErrors: string[] = [];
