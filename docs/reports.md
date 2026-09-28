@@ -14,6 +14,13 @@ artifacts/{runId}/
                 checkpoints/checkpoint-NNNN.json + .sha256,
                 handoffs/handoff-NNNN.json + .md + .sha256,
                 agent-instances/{agentInstanceId}/instance.json, context-usage.json, resume-context-manifest.json
+  discovery/    (autonomous mode) discovery-packet.json, discovery-authorization.json, events.ndjson,
+                website-understanding-profile.json/.md/.sha256, discovery-report.json/.md/.html,
+                route-map.json/.mmd, route-inventory.json, ui-inventory.json, domain-model.json,
+                journey-inventory.json, risk-inventory.json, quality-surface.json,
+                autonomous-plan-summary.md, evidence-to-scenario-map.json,
+                lead/ actions.ndjson, observations.json, console.json, network.json, blocked-requests.json,
+                      screenshots/, a11y/, trace/, checkpoints/, handoffs/, agent-instances/, artifact-manifest.json
   verification/{verificationPacketId}/   (Milestone 4)
   reports/      report.json, report.md   (report.html and junit.xml in Milestone 2)
 ```

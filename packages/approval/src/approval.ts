@@ -74,6 +74,8 @@ export interface DecisionInput {
   /** Separate, typed risk approval. Must echo the exact riskPlanHash when the plan has risky steps. */
   riskAcceptance?: { accepted: boolean; riskPlanHash?: string };
   reason?: string;
+  /** Autonomous mode: the profile the plan was generated from. Must match plan.origin.profileHash. */
+  discoveryProfileHash?: string;
   clock?: Clock;
 }
 
@@ -88,6 +90,12 @@ export function recordDecision(input: DecisionInput): ApprovalRecord {
     throw new ApprovalError(
       "APPROVAL_INVALIDATED",
       "the test plan changed after the execution plan was generated; generate a fresh execution plan and approve again",
+    );
+  }
+  if (input.discoveryProfileHash !== undefined && plan.origin?.profileHash !== input.discoveryProfileHash) {
+    throw new ApprovalError(
+      "APPROVAL_INVALIDATED",
+      "the test plan is not bound to the reviewed discovery profile; regenerate the plan from the profile",
     );
   }
   let riskAccepted = false;
@@ -124,6 +132,9 @@ export function recordDecision(input: DecisionInput): ApprovalRecord {
     riskAccepted,
     decidedAt: (input.clock ?? systemClock).iso(),
     ...(input.reason ? { reason: input.reason } : {}),
+    ...(input.discoveryProfileHash
+      ? { discoveryProfileHash: input.discoveryProfileHash as `sha256:${string}` }
+      : {}),
   };
   return { ...base, recordHash: computeApprovalRecordHash(base) };
 }

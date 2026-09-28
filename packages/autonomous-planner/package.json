@@ -1,0 +1,24 @@
+{
+  "name": "@browserswarm/autonomous-planner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Evidence-based autonomous test planning from a Website Understanding Profile",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/plan-compiler": "workspace:*",
+    "@browserswarm/policy-engine": "workspace:*",
+    "@browserswarm/shared": "workspace:*"
+  }
+}

@@ -186,6 +186,26 @@ describe("deterministic parallel execution", () => {
   });
 });
 
+describe("accessibility steps", () => {
+  it("run_accessibility_scan fails on serious violations with axe evidence; inspect_accessibility_tree captures the tree", async () => {
+    const plan = planWith([
+      scenario("a11y-bad", [
+        { action: "navigate", url: "/a11y" },
+        { action: "inspect_accessibility_tree" },
+        { action: "run_accessibility_scan", tags: ["wcag2a", "wcag2aa"] },
+      ]),
+    ]);
+    const out = await tmp("a11y");
+    const result = await executeApprovedPlan(approve(plan), { outputDir: out });
+    const packet = result.report.packets[0]!;
+    expect(packet.stepResults[1]!.status).toBe("passed");
+    expect(packet.stepResults[2]!.status).toBe("failed");
+    expect(packet.stepResults[2]!.evidence.some((e) => e.endsWith("-axe.json"))).toBe(true);
+    const finding = result.report.findings.find((f) => f.scenarioId === "a11y-bad")!;
+    expect(finding.actual).toMatch(/label/);
+  });
+});
+
 describe("failures, evidence and policy at runtime", () => {
   it("captures evidence-backed findings and blocks off-domain navigation", async () => {
     const plan = planWith([

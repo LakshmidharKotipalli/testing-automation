@@ -9,6 +9,7 @@ import { checkUrl } from "@browserswarm/policy-engine";
 import { newId, padSequence, truncate, type Redactor } from "@browserswarm/shared";
 import type { StorageAdapter } from "@browserswarm/storage";
 import type { Page } from "playwright";
+import { accessibilityTreeSummary, runAxe, SERIOUS_IMPACTS } from "./accessibility.js";
 import { resolveLocator, resolveSingle } from "./locators.js";
 import type { PageObservers } from "./observers.js";
 
@@ -336,14 +337,42 @@ export async function executeStep(
           evidence,
         };
       }
-      case "run_accessibility_scan":
-      case "inspect_accessibility_tree":
+      case "run_accessibility_scan": {
+        const scan = await runAxe(page, {
+          ...(step.tags ? { tags: step.tags } : {}),
+          ...(step.include ? { include: step.include } : {}),
+          redactor: ctx.redactor,
+        });
+        const rel = packetPath(packet, `a11y/step-${padSequence(index, 3)}-axe.json`);
+        await ctx.storage.writeJson(rel, scan);
+        evidence.push(rel);
+        const serious = scan.violations.filter((v) => SERIOUS_IMPACTS.has(v.impact));
+        if (serious.length) {
+          throw new AssertionFailureWithEvidence(
+            `${serious.length} serious/critical accessibility violation(s)`,
+            "no serious or critical axe violations",
+            serious
+              .slice(0, 5)
+              .map((v) => `${v.id} (${v.impact}, ${v.nodeCount} node(s))`)
+              .join(" | "),
+            [],
+          );
+        }
         return {
-          status: "skipped",
-          summary: `${step.action} unavailable`,
-          skipReason: "not_implemented",
+          status: "passed",
+          summary: `axe: no serious/critical violations (${scan.violations.length} minor/moderate)`,
           evidence,
         };
+      }
+      case "inspect_accessibility_tree": {
+        const tree = step.locator
+          ? truncate(r(await single(step.locator).ariaSnapshot({ timeout })), 8000)
+          : await accessibilityTreeSummary(page, undefined, ctx.redactor);
+        const rel = packetPath(packet, `a11y/step-${padSequence(index, 3)}-tree.yaml`);
+        await ctx.storage.writeText(rel, tree);
+        evidence.push(rel);
+        return { status: "passed", summary: "Captured accessibility tree (bounded, redacted)", evidence };
+      }
     }
     return {
       status: "failed",

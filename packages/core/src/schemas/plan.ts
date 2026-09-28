@@ -1,8 +1,11 @@
 import { z } from "zod";
 import {
   AgentRoleSchema,
+  EvidenceReferenceSchema,
   ExtensionsSchema,
   PrioritySchema,
+  ScenarioSafetyClassSchema,
+  ScenarioSourceSchema,
   SeveritySchema,
   SlugIdSchema,
   ViewportSizeSchema,
@@ -195,9 +198,80 @@ export const ScenarioSchema = z
     expectedOutcome: z.string().min(1).max(1000),
     tags: z.array(z.string()).optional(),
     steps: z.array(TestStepSchema).min(1),
+    // Planning metadata. All optional (no defaults) so plans without it keep their exact plan hash.
+    source: ScenarioSourceSchema.optional(),
+    safetyClass: ScenarioSafetyClassSchema.optional(),
+    evidence: z.array(EvidenceReferenceSchema).optional(),
+    routes: z.array(z.string().min(1)).optional(),
+    preconditions: z.array(z.string().max(500)).optional(),
+    requiredData: z.array(z.string().max(200)).optional(),
+    executableWithoutLlm: z.boolean().optional(),
+    rationale: z.string().max(1000).optional(),
   })
   .strict();
 export type Scenario = z.infer<typeof ScenarioSchema>;
+
+/**
+ * A scenario the planner identified but will not execute in this plan: it needs test data, credentials or
+ * an explicit risk approval. Listed for the reviewer; never expanded into work packets.
+ */
+export const DeferredScenarioSchema = z
+  .object({
+    id: SlugIdSchema,
+    title: z.string().min(1).max(200),
+    objective: z.string().max(1000),
+    source: ScenarioSourceSchema,
+    safetyClass: z.enum(["requires-test-data", "requires-credentials", "requires-risk-approval"]),
+    routes: z.array(z.string()),
+    requiredData: z.array(z.string().max(200)).default([]),
+    reason: z.string().max(1000),
+    evidence: z.array(EvidenceReferenceSchema),
+  })
+  .strict();
+export type DeferredScenario = z.infer<typeof DeferredScenarioSchema>;
+
+/** A scenario or area explicitly excluded from testing, with the reason. Never executed. */
+export const ExcludedScenarioSchema = z
+  .object({
+    id: SlugIdSchema,
+    title: z.string().min(1).max(200),
+    routes: z.array(z.string()),
+    reason: z.string().max(1000),
+    evidence: z.array(EvidenceReferenceSchema),
+  })
+  .strict();
+export type ExcludedScenario = z.infer<typeof ExcludedScenarioSchema>;
+
+export const RunModeSchema = z.enum(["instruction-led", "autonomous"]);
+export type RunMode = z.infer<typeof RunModeSchema>;
+
+/** Records how the plan's scope was decided. Hash-bound, so a changed scope needs a fresh approval. */
+export const ScopeResolutionRecordSchema = z
+  .object({
+    mode: RunModeSchema,
+    reasons: z.array(z.string().max(500)),
+    safetyRestrictions: z.array(z.string().max(500)).default([]),
+    exclusions: z.array(z.string().max(500)).default([]),
+    preferences: z.array(z.string().max(500)).default([]),
+    conflicts: z.array(z.string().max(500)).default([]),
+  })
+  .strict();
+export type ScopeResolutionRecord = z.infer<typeof ScopeResolutionRecordSchema>;
+
+export const PlanOriginSchema = z
+  .object({
+    mode: RunModeSchema,
+    profileId: z.string().optional(),
+    profileHash: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .optional(),
+    discoveryRunId: z.string().optional(),
+    userIntent: z.string().max(2000).optional(),
+    scopeResolution: ScopeResolutionRecordSchema.optional(),
+  })
+  .strict();
+export type PlanOrigin = z.infer<typeof PlanOriginSchema>;
 
 export const ReportingConfigSchema = z
   .object({
@@ -242,6 +316,9 @@ export const TestPlanSchema = z
     scenarios: z.array(ScenarioSchema).min(1),
     reporting: ReportingConfigSchema.default({}),
     compilation: CompilationInfoSchema.optional(),
+    origin: PlanOriginSchema.optional(),
+    deferredScenarios: z.array(DeferredScenarioSchema).optional(),
+    excludedScenarios: z.array(ExcludedScenarioSchema).optional(),
     extensions: ExtensionsSchema,
   })
   .strict();

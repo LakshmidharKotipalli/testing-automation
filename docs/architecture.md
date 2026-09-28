@@ -65,12 +65,17 @@ transition is emitted as an event.
 
 ```
 Run:        DRAFT -> COMPILED -> VALIDATED -> EXECUTION_PLAN_GENERATED -> PENDING_APPROVAL -> APPROVED -> RUNNING -> COMPLETED | FAILED | CANCELLED
+Run (autonomous): DRAFT -> DISCOVERY_PLANNED -> DISCOVERY_RUNNING -> DISCOVERY_COMPLETED -> WEBSITE_PROFILE_GENERATED
+            -> TEST_PLAN_GENERATED -> EXECUTION_PLAN_GENERATED -> PENDING_APPROVAL -> APPROVED -> RUNNING -> ...
 Packet:     PENDING -> QUEUED -> RUNNING -> CHECKPOINTING -> HANDOFF_PENDING -> RESUMING -> RUNNING ... -> COMPLETED | FAILED | BLOCKED | CANCELLED
 Agent:      CREATED -> STARTING -> ACTIVE -> CONTEXT_WARNING -> CHECKPOINTING -> TERMINATED -> REPLACED
 Handoff:    NOT_REQUIRED -> REQUIRED -> WRITING -> VALIDATED -> PERSISTED -> CONSUMED -> COMPLETED
 ```
 
-Only `APPROVED -> RUNNING` may initiate browser execution. Rejection moves `PENDING_APPROVAL -> CANCELLED`.
+Only `APPROVED -> RUNNING` may initiate test execution. Rejection moves `PENDING_APPROVAL -> CANCELLED`. In
+autonomous mode the only browser work before approval is the single read-only Discovery Lead Agent, which runs
+after an explicit, hash-bound discovery authorization (see [autonomous-mode.md](autonomous-mode.md)). Work phases:
+`discovery`, `planning`, `approval`, `execution`, `verification`, `reporting`.
 
 ## Identity and hashing
 

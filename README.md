@@ -9,6 +9,23 @@ execution plan, **waits for your explicit approval**, and only then runs exactly
 > BrowserSwarm blocks destructive and risky actions by default, never solves CAPTCHAs, and never bypasses
 > authentication, authorization, rate limits or other security controls. See [docs/safety.md](docs/safety.md).
 
+## Two run modes
+
+- **Instruction-led** (your plan or prompt lists scenarios, steps, routes or "only test X"): your instructions
+  are compiled into the plan and are never broadened.
+- **Autonomous discovery-led** (only a URL, or "Test this website" / "Explore and test ..."): a single,
+  read-only **Discovery Lead Agent** first inspects the site within strict limits and writes a
+  **Website Understanding Profile** and Discovery Report. BrowserSwarm then proposes an evidence-based,
+  risk-aware multi-agent test plan, shows you the exact work packets, and waits for approval before any
+  test subagent starts. Details: [docs/autonomous-mode.md](docs/autonomous-mode.md).
+
+```bash
+pnpm browserswarm run --url https://staging.example.com                         # autonomous (URL only)
+pnpm browserswarm run --url https://staging.example.com --prompt ./request.md    # instruction-led if it has scenarios/steps
+pnpm browserswarm run --url https://staging.example.com --mode autonomous        # explicit override
+pnpm browserswarm discover --url https://staging.example.com                    # discovery + plan + review only
+```
+
 ## Why BrowserSwarm works the way it does
 
 - **User-plan-driven.** Your plan is the scope. Subagents are scoped executors of approved work packets; they do
@@ -62,19 +79,23 @@ Two execution levels:
 | **Work packet**    | Immutable, hash-bound unit of approved work: scenario, role, viewport, exact ordered steps, expected outcome, model, policies, budgets, artifact directory. | Fixed at approval. Never changes.                                    |
 | **Agent instance** | Temporary worker executing one work packet. At most one active instance per packet.                                                                         | Disposable; rotated on context, token, action, time or error limits. |
 
-Run lifecycle: `DRAFT -> COMPILED -> VALIDATED -> EXECUTION_PLAN_GENERATED -> PENDING_APPROVAL -> APPROVED -> RUNNING -> COMPLETED | FAILED | CANCELLED`.
-Only `APPROVED -> RUNNING` may start browser work. Full details: [docs/architecture.md](docs/architecture.md).
+Run lifecycle (instruction-led): `DRAFT -> COMPILED -> VALIDATED -> EXECUTION_PLAN_GENERATED -> PENDING_APPROVAL -> APPROVED -> RUNNING -> COMPLETED | FAILED | CANCELLED`.
+Autonomous: `DRAFT -> DISCOVERY_PLANNED -> DISCOVERY_RUNNING -> DISCOVERY_COMPLETED -> WEBSITE_PROFILE_GENERATED -> TEST_PLAN_GENERATED -> EXECUTION_PLAN_GENERATED -> PENDING_APPROVAL -> APPROVED -> RUNNING -> ...`.
+Only `APPROVED -> RUNNING` may start test execution; during discovery only the single read-only Discovery Lead
+Agent runs, after your explicit authorization. Full details: [docs/architecture.md](docs/architecture.md).
 
 ## Repository layout
 
 ```
-apps/cli                 browserswarm CLI (plan, validate, preview, approve, run, report)
+apps/cli                 browserswarm CLI (plan, validate, preview, approve, run, discover, autonomous-plan, report)
 apps/dashboard           run snapshot reader (UI arrives in Milestone 5)
 packages/core            Zod schemas, types, state machines, identity hashing
 packages/shared          canonical JSON, SHA-256, atomic writes, redaction, ids, clocks
 packages/policy-engine   domain allowlist, risk classification, per-action/LLM/handoff/resume checks
 packages/plan-compiler   YAML/JSON loading, validation, natural-language compiler
 packages/execution-planner  work-packet expansion, estimates, approval review display
+packages/discovery       Discovery Lead Agent (read-only crawl, guards, extraction), Website Understanding Profile, discovery reports
+packages/autonomous-planner  evidence-based role selection, AutonomousTestPlanGenerator, autonomous review, plan edits
 packages/approval        hash-bound approval records, risk approval, verification, prompt
 packages/orchestrator    run lifecycle, concurrency queue, packet runner
 packages/agent-runtime   agent instances and the deterministic scripted agent
@@ -259,13 +280,14 @@ An exhausted context is never silently ignored.
 
 ## Milestone status
 
-| Milestone | Scope                                                                                                                                                                                                                        | Status                                                   |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 1         | Approval-first deterministic foundation: schemas, hashing, validation, execution plans, approval gate, policy baseline, Playwright executor, fixture site, checkpoints, handoff schemas/writer, JSON/Markdown reports, tests | **Implemented**                                          |
-| 2         | Role-specific checks (axe-core, overflow matrix, visual), deduplication, HTML/JUnit reports                                                                                                                                  | Planned                                                  |
-| 3         | Automatic replacement agents: storage-state restore, safe replay, resume validation                                                                                                                                          | Planned (interfaces and preflight implemented)           |
-| 4         | OpenCode LLM fallback wiring, verifier packets, token telemetry in reports                                                                                                                                                   | Planned (client, mock and structured output implemented) |
-| 5         | Dashboard UI, replay tooling, multi-browser projects                                                                                                                                                                         | Planned                                                  |
+| Milestone | Scope                                                                                                                                                                                                                        | Status                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 1         | Approval-first deterministic foundation: schemas, hashing, validation, execution plans, approval gate, policy baseline, Playwright executor, fixture site, checkpoints, handoff schemas/writer, JSON/Markdown reports, tests | **Implemented**                                                                           |
+| 2         | Role-specific checks (axe-core, overflow matrix, visual), deduplication, HTML/JUnit reports                                                                                                                                  | Partial: `run_accessibility_scan` (axe-core) and `inspect_accessibility_tree` implemented |
+| -         | Autonomous discovery-led mode: Discovery Lead Agent, Website Understanding Profile, AutonomousTestPlanGenerator, scope resolution, autonomous review                                                                         | **Implemented**                                                                           |
+| 3         | Automatic replacement agents: storage-state restore, safe replay, resume validation                                                                                                                                          | Planned (interfaces and preflight implemented)                                            |
+| 4         | OpenCode LLM fallback wiring, verifier packets, token telemetry in reports                                                                                                                                                   | Planned (client, mock and structured output implemented)                                  |
+| 5         | Dashboard UI, replay tooling, multi-browser projects                                                                                                                                                                         | Planned                                                                                   |
 
 In Milestone 1, when a lifecycle limit is reached the packet is checkpointed, a validated handoff is persisted,
 the agent instance is terminated, and the packet is BLOCKED with `replacement_agent_unavailable`.

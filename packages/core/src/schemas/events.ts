@@ -40,6 +40,19 @@ export const EVENT_TYPES = [
   "finding.deduplicated",
   "verification.queued",
   "verification.completed",
+  "discovery.planned",
+  "discovery.authorized",
+  "discovery.started",
+  "discovery.route.visited",
+  "discovery.interaction",
+  "discovery.control.restricted",
+  "discovery.request.blocked",
+  "discovery.checkpoint.created",
+  "discovery.handoff.created",
+  "discovery.completed",
+  "discovery.failed",
+  "profile.generated",
+  "plan.generated",
 ] as const;
 
 export const AgentEventTypeSchema = z.enum(EVENT_TYPES);

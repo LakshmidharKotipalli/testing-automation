@@ -40,6 +40,7 @@ export const pages: Record<string, () => string> = {
   <li><a href="/login">Sign in</a></li>
   <li><a href="/pricing">See pricing</a></li>
   <li><a href="/external">External links</a></li>
+  <li><a href="/catalog">Product catalog</a></li>
 </ul>`,
     ),
 
@@ -161,6 +162,95 @@ export const pages: Record<string, () => string> = {
 <script>document.getElementById('c').textContent = document.cookie || '(none)';</script>`,
     ),
 };
+
+/**
+ * Discovery fixture: a small catalog with safe structures (table, GET search, GET filter, tabs, details,
+ * pagination, repeated values) and deliberately restricted controls (add to cart, delete, subscribe, a POST
+ * newsletter form, an upload, a download, an external link) that discovery must record but never use.
+ * Every restricted control targets /api/* or /files/*, which the server counts.
+ */
+export const catalogItems = [
+  { id: 1, name: "Cordless Drill", price: "$89", stock: "In stock" },
+  { id: 2, name: "Garden Hose", price: "$25", stock: "Low stock" },
+  { id: 3, name: "Workbench", price: "$240", stock: "In stock" },
+];
+
+const catalogScripts = `<script>
+  function post(path) { fetch(path, { method: 'POST', body: '{}' }).catch(function () {}); }
+</script>`;
+
+export function catalogPage(page: number): string {
+  const rows = catalogItems
+    .map(
+      (i) =>
+        `<tr><td><a href="/catalog/item/${i.id}">${i.name}</a></td><td>${i.price}</td><td>${i.stock}</td></tr>`,
+    )
+    .join("");
+  return layout(
+    "Product catalog",
+    `<div id="cookie-banner" role="dialog" aria-label="Cookie consent"><p>We use cookies to improve the shop.</p>
+  <button type="button" onclick="post('/api/consent-accept');this.parentNode.remove()">Accept all</button>
+  <button type="button" onclick="this.parentNode.remove()">Reject all</button></div>
+<h1>Product catalog</h1>
+<p>Page ${page}. Browse our store of tools and garden products.</p>
+<search><form role="search" method="get" action="/catalog/search" aria-label="Product search">
+  <label for="q">Search products</label><input id="q" type="search" name="q">
+  <button type="submit">Search</button>
+</form></search>
+<form method="get" action="/catalog" aria-label="Filter products">
+  <label for="category">Category</label>
+  <select id="category" name="category"><option value="tools">Tools</option><option value="garden">Garden</option></select>
+  <button type="submit">Apply filter</button>
+</form>
+<table><caption>Products</caption><thead><tr><th>Name</th><th>Price</th><th>Stock</th></tr></thead><tbody>${rows}</tbody></table>
+<dl><dt>Total products</dt><dd>3</dd></dl>
+<div role="tablist" aria-label="Catalog details">
+  <button role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview">Overview</button>
+  <button role="tab" id="tab-specs" aria-selected="false" aria-controls="panel-specs" onclick="document.getElementById('panel-specs').hidden=false;document.getElementById('panel-overview').hidden=true">Specifications</button>
+</div>
+<div role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">Quality tools for every job.</div>
+<div role="tabpanel" id="panel-specs" aria-labelledby="tab-specs" hidden>All products ship with a warranty.</div>
+<details><summary>Shipping information</summary><p>Ships in two days.</p></details>
+<nav aria-label="Pagination"><a href="/catalog?page=${page === 1 ? 2 : 1}">${page === 1 ? "Next" : "Previous"}</a></nav>
+<section aria-label="Actions">
+  <button type="button" data-testid="add-to-cart" onclick="post('/api/cart')">Add to cart</button>
+  <button type="button" data-testid="delete-product" onclick="post('/api/delete')">Delete product</button>
+  <button type="button" onclick="post('/api/subscribe')">Subscribe</button>
+  <label for="photo">Upload photo</label><input id="photo" type="file">
+  <a href="/files/catalog.pdf" download>Download catalog</a>
+  <a href="https://external.invalid/partner">Partner store</a>
+  <a href="/account/logout">Log out</a>
+</section>
+<form method="post" action="/api/newsletter" aria-label="Newsletter">
+  <label for="nl-email">Email</label><input id="nl-email" type="email" name="email">
+  <button type="submit">Sign me up</button>
+</form>
+<img src="/img/missing.png" alt="Promo banner">
+${catalogScripts}
+<script>console.error('Catalog widget failed to load');</script>`,
+  );
+}
+
+export function catalogItemPage(id: number): string | undefined {
+  const item = catalogItems.find((i) => i.id === id);
+  if (!item) return undefined;
+  return layout(
+    item.name,
+    `<h1>${item.name}</h1>
+<dl><dt>Price</dt><dd>${item.price}</dd><dt>Total products</dt><dd>3</dd></dl>
+<button type="button" onclick="post('/api/cart')">Add to cart</button>
+<p><a href="/catalog">Back to catalog</a></p>
+${catalogScripts}`,
+  );
+}
+
+export function catalogSearchPage(q: string): string {
+  const hits = catalogItems.filter((i) => i.name.toLowerCase().includes(q.toLowerCase()));
+  const list = (hits.length ? hits : catalogItems)
+    .map((i) => `<li><a href="/catalog/item/${i.id}">${i.name}</a></li>`)
+    .join("");
+  return layout("Search results", `<h1>Search results</h1><p>${hits.length} result(s)</p><ul>${list}</ul>`);
+}
 
 /** Multi-step flow used to force context rotation with a low per-instance action limit. */
 export function flowPage(step: number, total: number): string {

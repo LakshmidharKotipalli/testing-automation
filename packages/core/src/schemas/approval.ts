@@ -36,6 +36,8 @@ export const ApprovalRecordSchema = z
     riskAccepted: z.boolean(),
     decidedAt: IsoDateSchema,
     reason: z.string().max(2000).optional(),
+    /** Autonomous mode: the Website Understanding Profile the approved plan was generated from. */
+    discoveryProfileHash: Sha256Schema.optional(),
     recordHash: Sha256Schema,
   })
   .strict();

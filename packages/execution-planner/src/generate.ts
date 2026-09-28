@@ -3,6 +3,7 @@ import {
   computePlanHash,
   computeRiskPlanHash,
   computeWorkPacketHash,
+  AgentRoleSchema,
   ExecutionPlanSchema,
   MILESTONE_LIMITATIONS,
   ValidationError,
@@ -23,16 +24,7 @@ export interface GenerateOptions {
   clock?: Clock;
 }
 
-const ALL_ROLES: AgentRole[] = [
-  "functional",
-  "forms",
-  "accessibility",
-  "responsive",
-  "visual",
-  "performance-smoke",
-  "security-smoke",
-  "verifier",
-];
+const ALL_ROLES: AgentRole[] = [...AgentRoleSchema.options];
 
 export function modelForRole(plan: TestPlan, role: AgentRole): ModelRef | null {
   return plan.models.overrides[role] ?? plan.models.default ?? null;
@@ -92,6 +84,8 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
           planHash,
           riskFlags: scenarioFlags,
           requiresExplicitRiskApproval: scenarioFlags.length > 0,
+          // Only present for planner-generated scenarios, so instruction-led packet hashes are unchanged.
+          ...(scenario.rationale ? { rationale: scenario.rationale } : {}),
         };
         packets.push({ ...packet, workPacketHash: computeWorkPacketHash(packet) });
       }
@@ -142,6 +136,18 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
     riskPlanHash: riskFlags.length ? computeRiskPlanHash(riskFlags, executionPlanId) : null,
     requiresExplicitRiskApproval: riskFlags.length > 0,
     limitations: [...MILESTONE_LIMITATIONS],
+    ...(plan.origin
+      ? {
+          origin: {
+            mode: plan.origin.mode,
+            ...(plan.origin.profileId ? { profileId: plan.origin.profileId } : {}),
+            ...(plan.origin.profileHash
+              ? { profileHash: plan.origin.profileHash as `sha256:${string}` }
+              : {}),
+            testPlanHash: planHash,
+          },
+        }
+      : {}),
   };
   const executionPlan = { ...base, executionPlanHash: computeExecutionPlanHash(base) };
   return ExecutionPlanSchema.parse(executionPlan);

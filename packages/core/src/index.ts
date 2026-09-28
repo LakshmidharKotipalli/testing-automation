@@ -7,6 +7,7 @@ export * from "./schemas/runtime.js";
 export * from "./schemas/events.js";
 export * from "./schemas/resume.js";
 export * from "./schemas/report.js";
+export * from "./schemas/discovery.js";
 export * from "./state-machines.js";
 export * from "./errors.js";
 export * from "./identity.js";

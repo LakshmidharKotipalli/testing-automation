@@ -3,6 +3,13 @@ import type { ApprovalRecord } from "./schemas/approval.js";
 import type { ExecutionPlan, RiskFlag, WorkPacket } from "./schemas/execution.js";
 import type { TestPlan } from "./schemas/plan.js";
 import type { AgentCheckpoint, HandoffDocument } from "./schemas/runtime.js";
+import type {
+  DiscoveryAuthorizationRecord,
+  DiscoveryCheckpoint,
+  DiscoveryHandoff,
+  DiscoveryWorkPacket,
+  WebsiteUnderstandingProfile,
+} from "./schemas/discovery.js";
 import type { z } from "zod";
 
 /**
@@ -45,6 +52,43 @@ export function computeCheckpointHash(cp: Omit<AgentCheckpoint, "integrityHash">
 
 export function computeHandoffHash(doc: Omit<HandoffDocument, "integrityHash"> | HandoffDocument): Sha256 {
   return hashExcluding(doc as HandoffDocument, "integrityHash");
+}
+
+/**
+ * Profile hash: binds the observed facts, classifications and recommendations. `generatedAt` is excluded so
+ * regenerating an identical profile from the same observations yields the same hash.
+ */
+export function computeProfileHash(
+  profile: Omit<WebsiteUnderstandingProfile, "profileHash"> | WebsiteUnderstandingProfile,
+): Sha256 {
+  const copy: Record<string, unknown> = { ...(profile as Record<string, unknown>) };
+  delete copy.profileHash;
+  delete copy.generatedAt;
+  return hashObject(copy);
+}
+
+export function computeDiscoveryPacketHash(
+  packet: Omit<DiscoveryWorkPacket, "packetHash"> | DiscoveryWorkPacket,
+): Sha256 {
+  return hashExcluding(packet as DiscoveryWorkPacket, "packetHash");
+}
+
+export function computeDiscoveryCheckpointHash(
+  cp: Omit<DiscoveryCheckpoint, "integrityHash"> | DiscoveryCheckpoint,
+): Sha256 {
+  return hashExcluding(cp as DiscoveryCheckpoint, "integrityHash");
+}
+
+export function computeDiscoveryHandoffHash(
+  doc: Omit<DiscoveryHandoff, "integrityHash"> | DiscoveryHandoff,
+): Sha256 {
+  return hashExcluding(doc as DiscoveryHandoff, "integrityHash");
+}
+
+export function computeDiscoveryAuthorizationHash(
+  record: Omit<DiscoveryAuthorizationRecord, "recordHash"> | DiscoveryAuthorizationRecord,
+): Sha256 {
+  return hashExcluding(record as DiscoveryAuthorizationRecord, "recordHash");
 }
 
 /** Formats Zod issues as `path: message` lines. */
