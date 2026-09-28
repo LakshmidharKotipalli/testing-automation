@@ -338,7 +338,11 @@ importers:
         specifier: workspace:*
         version: link:../shared
 
-  packages/test-fixtures: {}
+  packages/test-fixtures:
+    dependencies:
+      '@browserswarm/shared':
+        specifier: workspace:*
+        version: link:../shared
 
 packages:
 
