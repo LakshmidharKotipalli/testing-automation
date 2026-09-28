@@ -25,7 +25,14 @@ import { generateExecutionPlan, renderExecutionPlanReview } from "@browserswarm/
 import { executeApprovedPlan, type RunResult } from "@browserswarm/orchestrator";
 import { compilePrompt, loadPlanFile, serializePlanYaml, validatePlan } from "@browserswarm/plan-compiler";
 import { renderMarkdownReport } from "@browserswarm/reporters";
-import { atomicWriteFile, readJsonFile, sha256, stableStringify } from "@browserswarm/shared";
+import {
+  atomicWriteFile,
+  ENV,
+  readJsonFile,
+  sha256,
+  stableStringify,
+  targetFromEnv,
+} from "@browserswarm/shared";
 import { FilesystemStorage, RunLayout } from "@browserswarm/storage";
 
 export interface CliIO {
@@ -47,6 +54,15 @@ function reportValidation(io: CliIO, errors: string[], warnings: string[]): void
   for (const e of errors) err(io, `error: ${e}`);
 }
 
+/** Loads a plan file, resolving the target website from the central .env setting when the plan omits it. */
+async function loadPlan(io: CliIO, file: string) {
+  const loaded = await loadPlanFile(abs(io, file), { env: io.env });
+  if (loaded.targetSource === "env") {
+    out(io, `Target: ${loaded.plan.target.url} (from ${ENV.TARGET_URL} in .env)`);
+  }
+  return loaded;
+}
+
 async function loadPlanFromOptions(
   io: CliIO,
   opts: { plan?: string; prompt?: string; url?: string; allowedDomain?: string[] },
@@ -56,22 +72,31 @@ async function loadPlanFromOptions(
   rawPlanText?: string;
 }> {
   if (opts.plan) {
-    const loaded = await loadPlanFile(abs(io, opts.plan));
+    const loaded = await loadPlan(io, opts.plan);
     return { plan: loaded.plan, rawPlanText: loaded.rawText };
   }
   if (opts.prompt) {
-    if (!opts.url) throw new ValidationError("missing option", ["--url is required with --prompt"]);
+    // Precedence: --url flag, then the central BROWSERSWARM_TARGET_URL setting.
+    const envTarget = targetFromEnv(io.env);
+    const url = opts.url ?? envTarget?.url;
+    if (!url) {
+      throw new ValidationError("No target website configured", [
+        `set ${ENV.TARGET_URL} in .env (see .env.example), or pass --url`,
+      ]);
+    }
+    if (!opts.url) out(io, `Target: ${url} (from ${ENV.TARGET_URL} in .env)`);
+    const allowedDomains = opts.allowedDomain?.length
+      ? opts.allowedDomain
+      : !opts.url && io.env[ENV.ALLOWED_DOMAINS]
+        ? envTarget?.allowedDomains
+        : undefined;
     const promptText = await readFile(abs(io, opts.prompt), "utf8");
-    const compiled = compilePrompt({
-      promptText,
-      url: opts.url,
-      ...(opts.allowedDomain?.length ? { allowedDomains: opts.allowedDomain } : {}),
-    });
+    const compiled = compilePrompt({ promptText, url, ...(allowedDomains ? { allowedDomains } : {}) });
     for (const a of compiled.assumptions) err(io, `assumption: ${a}`);
     for (const a of compiled.ambiguities) err(io, `ambiguity: ${a}`);
     return { plan: compiled.plan, promptText };
   }
-  throw new ValidationError("missing option", ["provide --plan <file> or --prompt <file> --url <url>"]);
+  throw new ValidationError("missing option", ["provide --plan <file> or --prompt <file>"]);
 }
 
 async function readExecutionPlan(file: string): Promise<ExecutionPlan> {
@@ -101,7 +126,7 @@ export async function cmdPlan(
 }
 
 export async function cmdValidate(io: CliIO, opts: { plan: string }): Promise<number> {
-  const { plan } = await loadPlanFile(abs(io, opts.plan));
+  const { plan } = await loadPlan(io, opts.plan);
   const report = validatePlan(plan);
   reportValidation(io, report.errors, report.warnings);
   out(
@@ -123,7 +148,7 @@ export async function cmdPreview(
   io: CliIO,
   opts: { plan: string; parallel?: number; write?: string; runId?: string },
 ): Promise<number> {
-  const { plan } = await loadPlanFile(abs(io, opts.plan));
+  const { plan } = await loadPlan(io, opts.plan);
   const ep = generateExecutionPlan(plan, {
     ...(opts.parallel ? { parallel: opts.parallel } : {}),
     ...(opts.runId ? { runId: opts.runId } : {}),
@@ -177,7 +202,7 @@ async function decide(
 }
 
 function operatorName(io: CliIO, opts: DecisionOptions): string {
-  return opts.operator ?? io.env.BROWSERSWARM_OPERATOR ?? io.env.USER ?? "unknown-operator";
+  return opts.operator || io.env.BROWSERSWARM_OPERATOR || io.env.USER || "unknown-operator";
 }
 
 /** `approve`: bind an approval record to the exact execution plan and write the immutable approved plan. */
@@ -185,7 +210,7 @@ export async function cmdApprove(
   io: CliIO,
   opts: DecisionOptions & { plan: string; executionPlan: string; output?: string },
 ): Promise<number> {
-  const { plan } = await loadPlanFile(abs(io, opts.plan));
+  const { plan } = await loadPlan(io, opts.plan);
   const epPath = abs(io, opts.executionPlan);
   const ep = await readExecutionPlan(epPath);
   out(io, renderExecutionPlanReview(ep));
@@ -272,7 +297,17 @@ export interface RunCommandOptions extends DecisionOptions {
 export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortSignal): Promise<number> {
   if (opts.approvedPlan) {
     const raw = await readJsonFile(abs(io, opts.approvedPlan));
-    const currentPlan = opts.plan ? (await loadPlanFile(abs(io, opts.plan))).plan : undefined;
+    const currentPlan = opts.plan ? (await loadPlan(io, opts.plan)).plan : undefined;
+    // The approved plan is bound to one website. If .env now points elsewhere, require a fresh approval
+    // instead of silently testing the old site.
+    const approvedUrl = (raw as { executionPlan?: { target?: { url?: string } } }).executionPlan?.target?.url;
+    const envTarget = targetFromEnv(io.env);
+    if (envTarget && approvedUrl && envTarget.url !== approvedUrl) {
+      throw new BrowserSwarmError(
+        "APPROVAL_INVALIDATED",
+        `the approved plan targets ${approvedUrl} but ${ENV.TARGET_URL} in .env is ${envTarget.url}; run preview and approve again`,
+      );
+    }
     const runId = (raw as { executionPlan?: { runId?: string } }).executionPlan?.runId ?? "run";
     const outputDir = abs(io, opts.output ?? path.join("artifacts", runId));
     const result = await executeApprovedPlan(raw, {

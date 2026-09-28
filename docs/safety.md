@@ -53,3 +53,5 @@ deliberately conservative; a false positive only requires an explicit opt-in.
 - Storage state (cookies/localStorage) is written only to the packet's `browser-state/` artifact, filtered to
   allowed domains, and is never copied into handoffs, reports or model context.
 - Model prompts never include cookies, credentials, raw DOM or unredacted test data.
+- The LLM API key from `.env` is passed only to the OpenCode child process and is redacted from every
+  artifact, log, report and prompt.

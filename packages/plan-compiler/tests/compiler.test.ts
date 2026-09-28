@@ -184,3 +184,53 @@ describe("plan loading and validation", () => {
     expect(report.errors.join("\n")).toMatch(/exceed execution.maxActionsPerAgent/);
   });
 });
+
+describe("central target website from .env", () => {
+  const withoutTarget = () => {
+    const raw = fixturePlan({ url: "https://ignored.example.com" }) as Record<string, unknown>;
+    delete raw.target;
+    return raw;
+  };
+
+  it("fills target.url and allowedDomains from BROWSERSWARM_TARGET_URL when the plan omits them", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "bs-envplan-"));
+    const file = path.join(dir, "plan.json");
+    await writeFile(file, JSON.stringify(withoutTarget()));
+    const loaded = await loadPlanFile(file, {
+      env: { BROWSERSWARM_TARGET_URL: "https://staging.example.com" },
+    });
+    expect(loaded.targetSource).toBe("env");
+    expect(loaded.plan.target).toEqual({
+      url: "https://staging.example.com",
+      allowedDomains: ["staging.example.com"],
+      allowSubdomains: false,
+    });
+  });
+
+  it("uses BROWSERSWARM_ALLOWED_DOMAINS when set", () => {
+    const plan = parsePlan(withoutTarget(), {
+      env: {
+        BROWSERSWARM_TARGET_URL: "https://app.example.com",
+        BROWSERSWARM_ALLOWED_DOMAINS: "app.example.com,cdn.example.com",
+      },
+    });
+    expect(plan.target.allowedDomains).toEqual(["app.example.com", "cdn.example.com"]);
+  });
+
+  it("an explicit target.url in the plan wins over .env", async () => {
+    const loaded = parsePlan(fixturePlan({ url: "https://explicit.example.com" }), {
+      env: { BROWSERSWARM_TARGET_URL: "https://staging.example.com" },
+    });
+    expect(loaded.target.url).toBe("https://explicit.example.com");
+  });
+
+  it("fails clearly when neither the plan nor .env names a website", () => {
+    expect(() => parsePlan(withoutTarget(), { env: {} })).toThrow(/No target website configured/);
+  });
+
+  it("changing the .env URL changes the plan hash, so prior approvals are invalidated", () => {
+    const a = parsePlan(withoutTarget(), { env: { BROWSERSWARM_TARGET_URL: "https://a.example.com" } });
+    const b = parsePlan(withoutTarget(), { env: { BROWSERSWARM_TARGET_URL: "https://b.example.com" } });
+    expect(validatePlan(a).planHash).not.toBe(validatePlan(b).planHash);
+  });
+});

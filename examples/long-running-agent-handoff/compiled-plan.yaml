@@ -6,10 +6,7 @@ id: long-running-agent-handoff
 name: Long Flow With Agent Rotation
 mode: scripted
 
-target:
-  url: http://127.0.0.1:4173
-  allowedDomains:
-    - 127.0.0.1
+# target: omitted on purpose; the website comes from BROWSERSWARM_TARGET_URL in .env.
 
 browser:
   engine: chromium

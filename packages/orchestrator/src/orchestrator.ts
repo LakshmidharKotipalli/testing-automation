@@ -14,7 +14,7 @@ import {
 import type { ReplacementAgentFactory } from "@browserswarm/handoff";
 import { buildTestDataRedactor, resolveTestData } from "@browserswarm/policy-engine";
 import { buildRunReport, writeReports } from "@browserswarm/reporters";
-import { stableStringify, systemClock, type Clock } from "@browserswarm/shared";
+import { envSecrets, stableStringify, systemClock, type Clock } from "@browserswarm/shared";
 import { EventStore, FilesystemStorage, RunLayout, type StorageAdapter } from "@browserswarm/storage";
 import { PacketRunner, type PacketRunResult } from "./packet-runner.js";
 import { Semaphore } from "./semaphore.js";
@@ -58,7 +58,8 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
   const ep = approved.executionPlan;
   const clock = options.clock ?? systemClock;
   const testData = resolveTestData(ep.testData, ep.runId, options.env ?? process.env);
-  const redactor = buildTestDataRedactor(testData);
+  // Test data and env-file secrets (the LLM API key) are masked in every artifact.
+  const redactor = buildTestDataRedactor(testData, envSecrets(options.env ?? process.env));
 
   const storage: StorageAdapter = new FilesystemStorage(options.outputDir);
   const events = new EventStore(storage, ep.runId, RunLayout.events, clock);

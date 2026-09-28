@@ -5,11 +5,7 @@ id: login-validation
 name: Login Validation Smoke
 mode: scripted
 
-target:
-  url: http://127.0.0.1:4173
-  allowedDomains:
-    - 127.0.0.1
-  allowSubdomains: false
+# target: omitted on purpose; the website comes from BROWSERSWARM_TARGET_URL in .env.
 
 browser:
   engine: chromium

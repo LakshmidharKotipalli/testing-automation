@@ -62,6 +62,14 @@ export const ModelRefSchema = z
     timeoutMs: z.number().int().min(1000).max(600_000).optional(),
     contextWindowTokens: z.number().int().min(1024).optional(),
     outputFormat: z.enum(["json", "text-json-block"]).optional(),
+    /**
+     * Name of the variable the model runtime reads its key from (e.g. ANTHROPIC_API_KEY). The key VALUE
+     * always comes from BROWSERSWARM_LLM_API_KEY in .env and is never part of the plan.
+     */
+    apiKeyEnv: z
+      .string()
+      .regex(/^[A-Z_][A-Z0-9_]*$/)
+      .optional(),
   })
   .strict();
 export type ModelRef = z.infer<typeof ModelRefSchema>;
