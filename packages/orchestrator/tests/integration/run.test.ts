@@ -306,7 +306,7 @@ describe("context lifecycle (Milestone 1: checkpoint + handoff, then safe block)
       "packet.handoff.created",
       "agent.terminated",
       "packet.blocked",
-    ];
+    ] as const;
     let cursor = -1;
     for (const t of order) {
       const idx = types.indexOf(t, cursor + 1);

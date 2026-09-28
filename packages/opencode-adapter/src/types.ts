@@ -21,9 +21,7 @@ export interface LLMGenerateOutput {
 }
 
 export type LLMStreamEvent =
-  | { type: "text"; text: string }
-  | { type: "usage"; usage: TokenUsage }
-  | { type: "done" };
+  { type: "text"; text: string } | { type: "usage"; usage: TokenUsage } | { type: "done" };
 
 export interface LLMClient {
   generate(input: LLMGenerateInput): Promise<LLMGenerateOutput>;
