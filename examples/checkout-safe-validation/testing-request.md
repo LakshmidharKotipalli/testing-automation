@@ -1,7 +1,5 @@
 # Checkout form validation (no purchase)
 
-Allowed domains: staging.example.com
-
 Validate the checkout form's client-side validation. The order must never be placed: BrowserSwarm blocks
 purchase and payment actions by default, and this request deliberately stops before any submit button.
 

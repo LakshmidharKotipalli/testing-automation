@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { BrowserSwarmError, ValidationError } from "@browserswarm/core";
+import path from "node:path";
+import { ENV, loadDotEnv } from "@browserswarm/shared";
 import { Command, InvalidArgumentError } from "commander";
 import {
   cmdApprove,
@@ -11,6 +13,10 @@ import {
   EXIT,
   type CliIO,
 } from "./commands.js";
+
+// Central configuration (target website, LLM API key, secrets): ./.env or $BROWSERSWARM_ENV_FILE.
+// Variables already exported in the shell take precedence over the file.
+loadDotEnv(process.env[ENV.ENV_FILE] ?? path.resolve(process.cwd(), ".env"));
 
 const io: CliIO = {
   stdin: process.stdin,
@@ -54,7 +60,7 @@ async function main(argv: string[]): Promise<number> {
     .description(
       "Compile a natural-language prompt (or normalize a YAML/JSON plan) into an editable YAML test plan",
     )
-    .option("--url <url>", "target URL (required with --prompt)")
+    .option("--url <url>", "target URL (default: BROWSERSWARM_TARGET_URL from .env)")
     .option("--prompt <file>", "natural-language testing request (Markdown)")
     .option("--plan <file>", "existing YAML/JSON plan to normalize")
     .option("--allowed-domain <domains>", "allowed domain(s), comma separated", collect)
@@ -105,7 +111,7 @@ async function main(argv: string[]): Promise<number> {
       "YAML/JSON plan (interactive shortcut, or approval re-check with --approved-plan)",
     )
     .option("--prompt <file>", "natural-language testing request (interactive shortcut)")
-    .option("--url <url>", "target URL (with --prompt)")
+    .option("--url <url>", "target URL with --prompt (default: BROWSERSWARM_TARGET_URL from .env)")
     .option("--allowed-domain <domains>", "allowed domain(s), comma separated", collect)
     .option("--parallel <n>", "maximum concurrent work packets", positiveInt)
     .option("--output <dir>", "run artifact directory (default artifacts/<runId>)")

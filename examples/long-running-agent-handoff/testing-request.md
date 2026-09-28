@@ -1,7 +1,5 @@
 # Long multi-step flow with planned agent rotation
 
-Allowed domains: 127.0.0.1
-
 Walks the fixture's six-page flow (`/flow/1` .. `/flow/6`). The compiled plan sets a deliberately low
 `maxActionsPerAgentInstance` so the agent instance reaches its lifecycle limit mid-flow. BrowserSwarm must
 checkpoint, write a validated handoff document, and terminate the exhausted instance cleanly.

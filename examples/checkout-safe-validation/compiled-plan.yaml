@@ -5,10 +5,7 @@ id: checkout-safe-validation
 name: Checkout Safe Validation
 mode: scripted
 
-target:
-  url: https://staging.example.com
-  allowedDomains:
-    - staging.example.com
+# target: omitted on purpose; the website comes from BROWSERSWARM_TARGET_URL in .env.
 
 execution:
   maxConcurrentAgents: 4

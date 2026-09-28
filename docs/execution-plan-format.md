@@ -47,4 +47,5 @@ templates unresolved), `expectedOutcome`, `mode` (`deterministic` / `llm-capable
 | Checkpoints             | Steps per packet (when checkpointing after every step) + rotations.                                                                                         |
 | Runtime                 | Lower bound from waves x longest scenario; upper bound from waves x agent timeout, capped by run timeout.                                                   |
 
-See `examples/login-validation/execution-plan.json` for a complete example.
+See `examples/login-validation/execution-plan.json` for a complete example (a snapshot generated for the
+default `BROWSERSWARM_TARGET_URL` in `.env.example`; with another URL, run `preview` to generate your own).

@@ -1,8 +1,6 @@
 # Login validation smoke
 
-Allowed domains: 127.0.0.1
-
-This request targets the local fixture site (`pnpm fixture:serve`, http://127.0.0.1:4173).
+The target website comes from `BROWSERSWARM_TARGET_URL` in `.env` (default: the local fixture site, `pnpm fixture:serve`).
 
 ## Test data
 

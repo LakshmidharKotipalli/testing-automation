@@ -121,6 +121,38 @@ process.stdin.on("end", () => {
     expect(out.usage?.inputTokens).toBeGreaterThan(0);
   });
 
+  it("hands the .env LLM API key to the child process only, under the configured name, and redacts it", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "bs-oc-key-"));
+    const script = path.join(dir, "fake-opencode.mjs");
+    await writeFile(
+      script,
+      `let input = "";
+process.stdin.on("data", (d) => (input += d));
+process.stdin.on("end", () => {
+  const key = process.env.ANTHROPIC_API_KEY;
+  process.stdout.write(JSON.stringify({
+    text: "key:" + (key === "sk-test-abcdef123" ? "received" : "missing") +
+      " bs:" + (process.env.BROWSERSWARM_LLM_API_KEY ? "leaked" : "absent") +
+      " prompt:" + (input.includes("sk-test-abcdef123") ? "leaked" : "clean"),
+  }));
+});
+`,
+    );
+    const client = OpenCodeCliClient.fromModelRef(
+      {
+        provider: "opencode-cli",
+        model: "p/m",
+        command: process.execPath,
+        argsTemplate: [script],
+        apiKeyEnv: "ANTHROPIC_API_KEY",
+      },
+      { timeoutMs: 20_000, outputFormat: "json" },
+      { BROWSERSWARM_LLM_API_KEY: "sk-test-abcdef123" },
+    );
+    const out = await client.generate({ prompt: "debug: sk-test-abcdef123" });
+    expect(out.text).toBe("key:received bs:absent prompt:clean");
+  });
+
   it("reports process failures", async () => {
     const client = new OpenCodeCliClient({
       command: "/nonexistent/opencode",

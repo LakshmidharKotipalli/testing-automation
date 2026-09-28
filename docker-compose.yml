@@ -1,13 +1,17 @@
 # Runs the local fixture site and the BrowserSwarm test suite in the official Playwright image.
+# Both services read the central .env (target website, LLM API key, secrets) when it exists.
 #   docker compose up fixture            # fixture site on http://localhost:4173
 #   docker compose run --rm browserswarm pnpm test
 services:
   fixture:
     image: mcr.microsoft.com/playwright:v1.56.1-noble
     working_dir: /app
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - .:/app
-    command: sh -c "corepack enable && pnpm install --frozen-lockfile && PORT=4173 pnpm fixture:serve"
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm fixture:serve"
     environment:
       - PORT=4173
     ports:
@@ -16,6 +20,9 @@ services:
   browserswarm:
     image: mcr.microsoft.com/playwright:v1.56.1-noble
     working_dir: /app
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - .:/app
     entrypoint: ["sh", "-c", 'corepack enable && pnpm install --frozen-lockfile && exec "$@"', "--"]

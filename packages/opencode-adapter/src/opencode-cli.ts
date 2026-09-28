@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ModelRef, TokenUsage } from "@browserswarm/core";
-import type { Redactor } from "@browserswarm/shared";
+import { createRedactor, llmApiKeyFromEnv, type LlmApiKey, type Redactor } from "@browserswarm/shared";
 import { estimateTokens } from "./tokens.js";
 import { LLMClientError, type LLMClient, type LLMGenerateInput, type LLMGenerateOutput } from "./types.js";
 
@@ -24,6 +24,11 @@ export interface OpenCodeCliOptions {
   /** Applied to prompts before they leave the process, as a last line of defense. */
   redactor?: Redactor;
   contextWindowTokens?: number;
+  /**
+   * LLM API key from the central .env (BROWSERSWARM_LLM_API_KEY). Exported to the OpenCode child process
+   * only, under `exportAs` (e.g. ANTHROPIC_API_KEY); never logged, persisted or placed in prompts.
+   */
+  apiKey?: LlmApiKey;
 }
 
 const DEFAULT_ENV_ALLOWLIST = [
@@ -44,18 +49,29 @@ export function renderArgs(template: string[], vars: Record<string, string>): st
 export function buildChildEnv(
   allowlist: string[],
   source: NodeJS.ProcessEnv = process.env,
+  apiKey?: LlmApiKey,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of allowlist) if (source[key] !== undefined) env[key] = source[key];
+  if (apiKey) env[apiKey.exportAs] = apiKey.value;
   return env;
 }
 
-/** Subprocess-backed client. OpenCode owns provider credentials; BrowserSwarm never handles model API keys. */
+/**
+ * Subprocess-backed client. Credentials come either from OpenCode's own login or from the central
+ * BROWSERSWARM_LLM_API_KEY in .env, which is handed to the child process only.
+ */
 export class OpenCodeCliClient implements LLMClient {
   constructor(private readonly options: OpenCodeCliOptions) {}
 
-  static fromModelRef(ref: ModelRef, extra: Partial<OpenCodeCliOptions> = {}): OpenCodeCliClient {
+  static fromModelRef(
+    ref: ModelRef,
+    extra: Partial<OpenCodeCliOptions> = {},
+    env: NodeJS.ProcessEnv = process.env,
+  ): OpenCodeCliClient {
+    const apiKey = llmApiKeyFromEnv(env, ref.apiKeyEnv);
     return new OpenCodeCliClient({
+      ...(apiKey ? { apiKey } : {}),
       command: ref.command ?? "opencode",
       argsTemplate: ref.argsTemplate ?? ["run", "--model", "{model}"],
       model: ref.model,
@@ -68,7 +84,13 @@ export class OpenCodeCliClient implements LLMClient {
 
   async generate(input: LLMGenerateInput): Promise<LLMGenerateOutput> {
     const o = this.options;
-    const redact = (s: string) => (o.redactor ? o.redactor.redactString(s) : s);
+    const keyRedactor = o.apiKey
+      ? createRedactor([{ label: "llmApiKey", value: o.apiKey.value }])
+      : undefined;
+    const redact = (s: string) => {
+      const r = o.redactor ? o.redactor.redactString(s) : s;
+      return keyRedactor ? keyRedactor.redactString(r) : r;
+    };
     const promptText = redact(input.system ? `${input.system}\n\n${input.prompt}` : input.prompt);
     const args = renderArgs(o.argsTemplate, {
       model: input.model?.model ?? o.model,
@@ -78,7 +100,7 @@ export class OpenCodeCliClient implements LLMClient {
     const stdout = await new Promise<string>((resolve, reject) => {
       const child = spawn(o.command, args, {
         cwd: o.cwd,
-        env: buildChildEnv(o.envAllowlist ?? DEFAULT_ENV_ALLOWLIST),
+        env: buildChildEnv(o.envAllowlist ?? DEFAULT_ENV_ALLOWLIST, process.env, o.apiKey),
         stdio: ["pipe", "pipe", "pipe"],
       });
       let out = "";

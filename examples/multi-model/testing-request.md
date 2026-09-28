@@ -1,7 +1,5 @@
 # Pricing smoke with per-role models
 
-Allowed domains: staging.example.com
-
 Uses `browserswarm.config.yaml` in this folder: a fast default model, a vision-capable model for the
 accessibility role, and a stronger model for verification. Steps are still scripted and deterministic;
 models are only consulted on approved fallback triggers (e.g. a locator that cannot be found).

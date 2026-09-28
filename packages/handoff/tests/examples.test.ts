@@ -15,7 +15,11 @@ describe("shipped examples", () => {
     "long-running-agent-handoff/compiled-plan.yaml",
     "checkout-safe-validation/compiled-plan.yaml",
   ])("%s is schema- and policy-valid", async (file) => {
-    const { plan } = await loadPlanFile(examples(file));
+    // Explicit env so the test never depends on a developer's local .env.
+    const { plan, targetSource } = await loadPlanFile(examples(file), {
+      env: { BROWSERSWARM_TARGET_URL: "http://127.0.0.1:4173" },
+    });
+    expect(targetSource).toBe("env");
     const report = validatePlan(plan);
     expect(report.errors).toEqual([]);
   });

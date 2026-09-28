@@ -8,7 +8,7 @@ import YAML from "yaml";
 import { fixturePlan } from "@browserswarm/test-fixtures";
 import { cmdApprove, cmdPlan, cmdPreview, cmdRun, cmdValidate, EXIT, type CliIO } from "../src/commands.js";
 
-async function setup(stdinText = "") {
+async function setup(stdinText = "", env: NodeJS.ProcessEnv = {}) {
   const cwd = await mkdtemp(path.join(tmpdir(), "bs-cli-"));
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -16,7 +16,13 @@ async function setup(stdinText = "") {
   let errText = "";
   stdout.on("data", (d) => (outText += d));
   stderr.on("data", (d) => (errText += d));
-  const io: CliIO = { stdin: Readable.from([stdinText]), stdout, stderr, env: { USER: "tester" }, cwd };
+  const io: CliIO = {
+    stdin: Readable.from([stdinText]),
+    stdout,
+    stderr,
+    env: { USER: "tester", ...env },
+    cwd,
+  };
   return { io, cwd, out: () => outText, err: () => errText };
 }
 
@@ -126,5 +132,38 @@ describe("CLI commands (no browser)", () => {
         riskPlanHash: ep.riskPlanHash,
       }),
     ).toBe(EXIT.OK);
+  });
+
+  it("uses BROWSERSWARM_TARGET_URL from .env when --url is omitted", async () => {
+    const t = await setup("", { BROWSERSWARM_TARGET_URL: "https://staging.example.com" });
+    await writeFile(path.join(t.cwd, "req.md"), PROMPT);
+    expect(await cmdPlan(t.io, { prompt: "req.md", output: "plan.yaml" })).toBe(EXIT.OK);
+    const plan = YAML.parse(await readFile(path.join(t.cwd, "plan.yaml"), "utf8"));
+    expect(plan.target.url).toBe("https://staging.example.com");
+    expect(plan.target.allowedDomains).toEqual(["staging.example.com"]);
+    expect(t.out()).toContain("from BROWSERSWARM_TARGET_URL in .env");
+
+    const none = await setup();
+    await writeFile(path.join(none.cwd, "req.md"), PROMPT);
+    await expect(cmdPlan(none.io, { prompt: "req.md", output: "plan.yaml" })).rejects.toThrow(
+      /No target website/,
+    );
+  });
+
+  it("plans without a target follow .env, and an approved plan refuses to run after .env changes", async () => {
+    const env = { BROWSERSWARM_TARGET_URL: "http://127.0.0.1:9" };
+    const t = await setup("", env);
+    const raw = fixturePlan({ url: "http://unused.example.com" }) as Record<string, unknown>;
+    delete raw.target;
+    await writeFile(path.join(t.cwd, "plan.yaml"), YAML.stringify(raw));
+    expect(await cmdPreview(t.io, { plan: "plan.yaml", write: "ep.json" })).toBe(EXIT.OK);
+    expect(t.out()).toContain("Target: http://127.0.0.1:9 (from BROWSERSWARM_TARGET_URL in .env)");
+    expect(await cmdApprove(t.io, { plan: "plan.yaml", executionPlan: "ep.json", yes: true })).toBe(EXIT.OK);
+
+    t.io.env.BROWSERSWARM_TARGET_URL = "http://127.0.0.1:10";
+    await expect(
+      cmdRun(t.io, { approvedPlan: "approved-execution-plan.json", output: "run-out" }),
+    ).rejects.toMatchObject({ code: "APPROVAL_INVALIDATED" });
+    await expect(readFile(path.join(t.cwd, "run-out/metadata/run.json"))).rejects.toThrow();
   });
 });

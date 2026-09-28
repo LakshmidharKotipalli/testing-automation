@@ -1,6 +1,9 @@
 # Multi-model OpenCode profile. The command syntax below is an EXAMPLE: adapt argsTemplate to the
-# OpenCode version you have installed (see docs/opencode.md). OpenCode manages provider credentials;
-# BrowserSwarm never needs model API keys.
+# OpenCode version you have installed (see docs/opencode.md).
+#
+# Credentials: put the key in .env as BROWSERSWARM_LLM_API_KEY (never in this file or a plan).
+# `apiKeyEnv` names the variable OpenCode/the provider reads it from; it can also be set once in .env
+# as BROWSERSWARM_LLM_API_KEY_ENV. With no key in .env, OpenCode's own login is used.
 #
 # Milestone 1 note: copy the `models` and `llm` blocks into your test plan. Standalone config-file
 # merging arrives with the OpenCode workflow in Milestone 4. Models are part of the approved plan hash.
@@ -10,6 +13,7 @@ models:
     command: opencode
     argsTemplate: ["run", "--model", "{model}", "--output", "json"]
     model: provider/fast-model
+    apiKeyEnv: ANTHROPIC_API_KEY
     timeoutMs: 120000
     contextWindowTokens: 128000
   overrides:

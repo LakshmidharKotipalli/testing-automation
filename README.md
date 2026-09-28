@@ -97,15 +97,35 @@ Requirements: Node.js 20+, pnpm 10.
 pnpm install
 pnpm exec playwright install chromium   # skip if browsers are already provisioned
 pnpm build
+cp .env.example .env                    # central configuration (see below)
 ```
 
-Model API keys are **not** needed. For optional LLM features BrowserSwarm calls OpenCode, which manages provider
-credentials ([docs/opencode.md](docs/opencode.md)).
+## Central configuration (`.env`)
+
+Everything environment-specific lives in one file, `.env` (gitignored; template in `.env.example`):
+
+```bash
+BROWSERSWARM_TARGET_URL=https://staging.example.com   # the website under test
+BROWSERSWARM_ALLOWED_DOMAINS=                         # optional; defaults to the URL's host
+BROWSERSWARM_LLM_API_KEY=sk-...                       # optional; only for LLM-assisted features
+BROWSERSWARM_LLM_API_KEY_ENV=ANTHROPIC_API_KEY        # name OpenCode/the provider reads the key from
+```
+
+- Every plan without an explicit `target`, every prompt compiled without `--url`, and the fixture server use
+  `BROWSERSWARM_TARGET_URL`. Change it once and everything follows. A plan's own `target.url` or the
+  `--url` flag still override it when you need to.
+- The URL is resolved when a plan is loaded, so it is part of the approved plan hash: after changing it,
+  run `preview` and `approve` again. `run --approved-plan` refuses to run a plan approved for a different
+  website than the one in `.env`.
+- The LLM API key is never written into plans, approval files, artifacts, reports or prompts. It is
+  passed only to the OpenCode process (under `BROWSERSWARM_LLM_API_KEY_ENV`) and redacted everywhere.
+  Leave it empty to use OpenCode's own login ([docs/opencode.md](docs/opencode.md)).
+- Shell or CI variables take precedence over the file; `BROWSERSWARM_ENV_FILE` points to another file.
 
 ## Quick start with the fixture site
 
 ```bash
-# Terminal 1: the local fixture application (http://127.0.0.1:4173, no external network)
+# Terminal 1: the local fixture application at BROWSERSWARM_TARGET_URL (default http://127.0.0.1:4173)
 pnpm fixture:serve
 
 # Terminal 2
@@ -118,7 +138,7 @@ pnpm browserswarm run      --approved-plan plans/approved-execution-plan.json --
 ## Quick start from a natural-language prompt
 
 ```bash
-pnpm browserswarm plan --url http://127.0.0.1:4173 --prompt examples/login-validation/testing-request.md --output plans/compiled-plan.yaml
+pnpm browserswarm plan --prompt examples/login-validation/testing-request.md --output plans/compiled-plan.yaml
 # review/edit plans/compiled-plan.yaml, then preview, approve and run as above
 ```
 
@@ -130,7 +150,7 @@ Prompt grammar: [docs/test-plan-format.md](docs/test-plan-format.md).
 Interactive shortcut (plan, validate, generate, display, ask, run):
 
 ```bash
-pnpm browserswarm run --prompt ./testing-request.md --url https://staging.example.com --parallel 4
+pnpm browserswarm run --prompt ./testing-request.md --parallel 4      # target from .env
 pnpm browserswarm run --plan ./plans/compiled-plan.yaml --parallel 4
 ```
 
