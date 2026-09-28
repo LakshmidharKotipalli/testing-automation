@@ -1,0 +1,35 @@
+{
+  "name": "@browserswarm/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Run orchestrator: approval verification, concurrency queue, packet lifecycle, checkpoints, handoffs",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/agent-runtime": "workspace:*",
+    "@browserswarm/approval": "workspace:*",
+    "@browserswarm/browser-tools": "workspace:*",
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/handoff": "workspace:*",
+    "@browserswarm/policy-engine": "workspace:*",
+    "@browserswarm/reporters": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "@browserswarm/storage": "workspace:*",
+    "playwright": "1.56.1"
+  },
+  "devDependencies": {
+    "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/opencode-adapter": "workspace:*",
+    "@browserswarm/plan-compiler": "workspace:*",
+    "@browserswarm/test-fixtures": "workspace:*"
+  }
+}

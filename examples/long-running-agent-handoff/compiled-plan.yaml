@@ -1,0 +1,63 @@
+# Forces a context-lifecycle rotation: 12 steps with at most 4 actions per agent instance.
+# Milestone 1: the first rotation writes checkpoint + handoff and BLOCKS the packet (no replacement yet).
+# Milestone 3: a replacement agent resumes at step 4 from the handoff, and again at step 8.
+version: 1
+id: long-running-agent-handoff
+name: Long Flow With Agent Rotation
+mode: scripted
+
+target:
+  url: http://127.0.0.1:4173
+  allowedDomains:
+    - 127.0.0.1
+
+browser:
+  engine: chromium
+  trace: true
+
+execution:
+  maxConcurrentAgents: 1
+  agentTimeoutMs: 120000
+  maxActionsPerAgent: 30
+
+llm:
+  strategy: disabled
+
+contextLifecycle:
+  enabled: true
+  maxActionsPerAgentInstance: 4
+  maxHandoffsPerWorkPacket: 3
+  checkpointAfterEveryStep: true
+  restoreBrowserSession: storage-state
+  allowResumeCurrentUrl: true
+  handoffMaxTokensEstimate: 1800
+
+testData:
+  note: fixture note value
+
+viewports:
+  desktop:
+    width: 1280
+    height: 800
+
+scenarios:
+  - id: long-flow
+    title: Multi-step flow completes
+    objective: Walk the multi-step flow to completion.
+    priority: medium
+    roles: [functional]
+    viewports: [desktop]
+    expectedOutcome: The final step shows Flow complete.
+    steps:
+      - { action: navigate, url: /flow/1 }
+      - { action: fill, locator: { label: Note 1 }, value: "{{testData.note}}" }
+      - { action: click, locator: { role: link, name: Next step } }
+      - { action: fill, locator: { label: Note 2 }, value: "{{testData.note}}" }
+      - { action: click, locator: { role: link, name: Next step } }
+      - { action: fill, locator: { label: Note 3 }, value: "{{testData.note}}" }
+      - { action: click, locator: { role: link, name: Next step } }
+      - { action: fill, locator: { label: Note 4 }, value: "{{testData.note}}" }
+      - { action: click, locator: { role: link, name: Next step } }
+      - { action: fill, locator: { label: Note 5 }, value: "{{testData.note}}" }
+      - { action: click, locator: { role: link, name: Next step } }
+      - { action: assert_visible, locator: { testId: done } }

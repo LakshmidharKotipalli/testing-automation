@@ -1,0 +1,17 @@
+{
+  "name": "@browserswarm/test-fixtures",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local, network-free fixture web application used by integration tests and the quick start",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

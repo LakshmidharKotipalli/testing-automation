@@ -1,0 +1,21 @@
+{
+  "name": "@browserswarm/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Run dashboard (Milestone 5). Milestone 1 ships a read-only run summary reader used by the future UI.",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/storage": "workspace:*"
+  }
+}

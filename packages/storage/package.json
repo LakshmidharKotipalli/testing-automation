@@ -1,0 +1,21 @@
+{
+  "name": "@browserswarm/storage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "StorageAdapter interface, filesystem backend, NDJSON event store and run artifact layout",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/shared": "workspace:*"
+  }
+}

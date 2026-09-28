@@ -1,0 +1,83 @@
+{
+  "description": "MockLLMClient profile used to simulate an LLM-assisted agent approaching its context window. With contextWindowTokens 24000 and warning/hard-stop thresholds of 75%/85%, call 3 crosses the warning (checkpoint on warning) and call 4 crosses the hard stop (checkpoint, handoff, terminate, replace).",
+  "contextWindowTokens": 24000,
+  "reportExactUsage": true,
+  "contextPolicy": {
+    "contextWarningThresholdPercent": 75,
+    "contextHardStopThresholdPercent": 85,
+    "maxHandoffsPerWorkPacket": 3
+  },
+  "responses": [
+    {
+      "kind": "json",
+      "value": {
+        "locator": {
+          "label": "Note 1"
+        }
+      },
+      "usage": {
+        "inputTokens": 9000,
+        "outputTokens": 120
+      }
+    },
+    {
+      "kind": "json",
+      "value": {
+        "locator": {
+          "label": "Note 2"
+        }
+      },
+      "usage": {
+        "inputTokens": 14000,
+        "outputTokens": 120
+      }
+    },
+    {
+      "kind": "json",
+      "value": {
+        "locator": {
+          "label": "Note 3"
+        }
+      },
+      "usage": {
+        "inputTokens": 18200,
+        "outputTokens": 120
+      }
+    },
+    {
+      "kind": "json",
+      "value": {
+        "locator": {
+          "label": "Note 4"
+        }
+      },
+      "usage": {
+        "inputTokens": 20500,
+        "outputTokens": 120
+      }
+    }
+  ],
+  "expected": [
+    {
+      "afterCall": 1,
+      "utilizationPercent": 38,
+      "decision": "continue"
+    },
+    {
+      "afterCall": 2,
+      "utilizationPercent": 59.3,
+      "decision": "continue"
+    },
+    {
+      "afterCall": 3,
+      "utilizationPercent": 77.3,
+      "decision": "warn"
+    },
+    {
+      "afterCall": 4,
+      "utilizationPercent": 87.4,
+      "decision": "rotate",
+      "trigger": "context_hard_limit"
+    }
+  ]
+}

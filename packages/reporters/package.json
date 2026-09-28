@@ -1,0 +1,27 @@
+{
+  "name": "@browserswarm/reporters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Run report assembly (JSON) and rendering (Markdown); HTML and JUnit in Milestone 2",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "@browserswarm/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@browserswarm/test-fixtures": "workspace:*",
+    "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/approval": "workspace:*"
+  }
+}

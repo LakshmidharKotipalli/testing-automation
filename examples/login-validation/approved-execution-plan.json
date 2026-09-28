@@ -1,0 +1,548 @@
+{
+  "approvalRecord": {
+    "approvalId": "approval-85e478ebf5f6",
+    "decidedAt": "2026-09-28T13:55:56.329Z",
+    "decision": "approve",
+    "executionPlanHash": "sha256:0e1ae698f02790b9a1a429e6cbf9243b8f165a0235fd29218568d197a6fbc5a9",
+    "mode": "interactive",
+    "operator": "example-operator",
+    "planHash": "sha256:e222d1253e4c42a402467e1e57bcdaff14954041cb939616a72349c5d441afea",
+    "recordHash": "sha256:3170b06510b914df4e62d4b854358247ac3a7b1790fd1cb967291cf413c4993a",
+    "riskAccepted": false,
+    "riskPlanHash": null,
+    "runId": "run-20260101-000000-example1",
+    "version": 1
+  },
+  "approvedPlanHash": "sha256:3741a63d1061d689a062ba6aa09ae5a6edb2db447629e446fcd22ec3455851ef",
+  "executionPlan": {
+    "browser": {
+      "actionTimeoutMs": 10000,
+      "engine": "chromium",
+      "headless": true,
+      "locale": "en-US",
+      "navigationTimeoutMs": 30000,
+      "screenshot": "only-on-failure",
+      "timezoneId": "America/New_York",
+      "trace": true
+    },
+    "concurrency": {
+      "failFast": false,
+      "maxConcurrentBrowserContexts": 3,
+      "maxConcurrentWorkPackets": 3,
+      "runTimeoutMs": 600000
+    },
+    "contextLifecycle": {
+      "allowResumeCurrentUrl": true,
+      "checkpointAfterEveryStep": true,
+      "checkpointBeforeRiskyAction": true,
+      "checkpointOnContextWarning": true,
+      "contextHardStopThresholdPercent": 85,
+      "contextWarningThresholdPercent": 75,
+      "enabled": true,
+      "handoffMaxTokensEstimate": 1800,
+      "includeCompletedStepDetail": "summary",
+      "includeRawDomInHandoff": false,
+      "includeRecentActionCount": 8,
+      "includeRecentObservationCount": 8,
+      "includeScreenshotsInHandoff": false,
+      "maxActionsPerAgentInstance": 18,
+      "maxDurationMsPerAgentInstance": 600000,
+      "maxHandoffsPerWorkPacket": 3,
+      "restoreBrowserSession": "storage-state"
+    },
+    "createdAt": "2026-09-28T13:55:56.326Z",
+    "executionPlanHash": "sha256:0e1ae698f02790b9a1a429e6cbf9243b8f165a0235fd29218568d197a6fbc5a9",
+    "executionPlanId": "xplan-1a534b749413",
+    "limitations": [
+      "Milestone 1: role-specific checks (axe-core for accessibility, overflow/screenshot matrix for responsive, visual review) arrive in Milestone 2; every role executes its approved scripted steps deterministically.",
+      "Milestone 1: LLM fallback is not wired into execution; llm-capable packets run deterministically with zero LLM calls.",
+      "Milestone 1: automatic replacement agents arrive in Milestone 3; when a lifecycle limit is reached the packet is checkpointed, a handoff is written, and the packet is BLOCKED (never silently continued).",
+      "Milestone 1: HTML and JUnit reports arrive in Milestone 2; JSON and Markdown are generated.",
+      "Milestone 1: verifier work packets arrive in Milestone 4; findings at or above the verification threshold are marked verification 'pending'."
+    ],
+    "llm": {
+      "allowedTriggers": [],
+      "maxCallsPerWorkPacket": 0,
+      "maxRepairAttempts": 1,
+      "maxTokensPerCall": 1500,
+      "strategy": "disabled"
+    },
+    "mode": "scripted",
+    "models": {
+      "functional": null,
+      "verifier": null
+    },
+    "planHash": "sha256:e222d1253e4c42a402467e1e57bcdaff14954041cb939616a72349c5d441afea",
+    "planId": "login-validation",
+    "planName": "Login Validation Smoke",
+    "reporting": {
+      "formats": ["json", "markdown"],
+      "outputDir": "./artifacts",
+      "verifySeverityAtOrAbove": "high"
+    },
+    "requiresExplicitRiskApproval": false,
+    "riskFlags": [],
+    "riskPlanHash": null,
+    "runId": "run-20260101-000000-example1",
+    "safety": {
+      "allowAccountCreation": false,
+      "allowAuthentication": false,
+      "allowEmailSending": false,
+      "allowExternalNavigation": false,
+      "allowFileDownloads": false,
+      "allowInvitations": false,
+      "allowPasswordChanges": false,
+      "allowPurchases": false,
+      "allowSecuritySmoke": false,
+      "allowSocialPosting": false,
+      "allowUploads": false,
+      "destructiveActions": "deny",
+      "redactSensitiveData": true,
+      "requireEvidenceForFindings": true
+    },
+    "summary": {
+      "browserMatrix": [
+        {
+          "engine": "chromium",
+          "viewport": {
+            "height": 900,
+            "width": 1440
+          },
+          "viewportName": "desktop"
+        },
+        {
+          "engine": "chromium",
+          "viewport": {
+            "height": 844,
+            "width": 390
+          },
+          "viewportName": "mobile"
+        }
+      ],
+      "deterministicPackets": 3,
+      "estimatedCheckpoints": 23,
+      "estimatedContextHandoffs": 0,
+      "estimatedMaxAgentInstances": 3,
+      "estimatedMaxTokens": 0,
+      "estimatedRuntimeMs": {
+        "max": 120000,
+        "min": 2250
+      },
+      "llmCapablePackets": 0,
+      "maxBrowserActions": 105,
+      "maxConcurrentBrowserContexts": 3,
+      "maxConcurrentWorkPackets": 3,
+      "maxLlmCalls": 0,
+      "scenarioCount": 2,
+      "testDataCategories": [
+        "validEmail (test-value, redacted in artifacts)",
+        "invalidPassword (secret, redacted in artifacts)"
+      ],
+      "workPacketCount": 3
+    },
+    "target": {
+      "allowSubdomains": false,
+      "allowedDomains": ["127.0.0.1"],
+      "url": "http://127.0.0.1:4173"
+    },
+    "testData": {
+      "invalidPassword": {
+        "secret": true,
+        "value": "InvalidPassword123!"
+      },
+      "validEmail": "qa+{{runId}}@example.test"
+    },
+    "version": 1,
+    "workPackets": [
+      {
+        "actionBudget": 35,
+        "allowSubdomains": false,
+        "allowedDomains": ["127.0.0.1"],
+        "artifactDir": "packets/login-invalid-password-functional-desktop",
+        "browser": {
+          "actionTimeoutMs": 10000,
+          "engine": "chromium",
+          "headless": true,
+          "locale": "en-US",
+          "navigationTimeoutMs": 30000,
+          "screenshot": "only-on-failure",
+          "timezoneId": "America/New_York",
+          "trace": true
+        },
+        "contextPolicy": {
+          "allowResumeCurrentUrl": true,
+          "checkpointAfterEveryStep": true,
+          "checkpointBeforeRiskyAction": true,
+          "checkpointOnContextWarning": true,
+          "contextHardStopThresholdPercent": 85,
+          "contextWarningThresholdPercent": 75,
+          "enabled": true,
+          "handoffMaxTokensEstimate": 1800,
+          "includeCompletedStepDetail": "summary",
+          "includeRawDomInHandoff": false,
+          "includeRecentActionCount": 8,
+          "includeRecentObservationCount": 8,
+          "includeScreenshotsInHandoff": false,
+          "maxActionsPerAgentInstance": 18,
+          "maxDurationMsPerAgentInstance": 600000,
+          "maxHandoffsPerWorkPacket": 3,
+          "restoreBrowserSession": "storage-state"
+        },
+        "expectedOutcome": "User remains on /login and receives an accessible invalid-credentials error.",
+        "llmCallBudget": 0,
+        "llmPolicy": {
+          "allowedTriggers": [],
+          "maxCallsPerWorkPacket": 0,
+          "maxRepairAttempts": 1,
+          "maxTokensPerCall": 1500,
+          "strategy": "disabled"
+        },
+        "mode": "deterministic",
+        "model": null,
+        "objective": "Verify failed login handling without successful login.",
+        "packetId": "login-invalid-password-functional-desktop",
+        "planHash": "sha256:e222d1253e4c42a402467e1e57bcdaff14954041cb939616a72349c5d441afea",
+        "planId": "login-validation",
+        "priority": "high",
+        "requiresExplicitRiskApproval": false,
+        "riskFlags": [],
+        "role": "functional",
+        "runId": "run-20260101-000000-example1",
+        "safety": {
+          "allowAccountCreation": false,
+          "allowAuthentication": false,
+          "allowEmailSending": false,
+          "allowExternalNavigation": false,
+          "allowFileDownloads": false,
+          "allowInvitations": false,
+          "allowPasswordChanges": false,
+          "allowPurchases": false,
+          "allowSecuritySmoke": false,
+          "allowSocialPosting": false,
+          "allowUploads": false,
+          "destructiveActions": "deny",
+          "redactSensitiveData": true,
+          "requireEvidenceForFindings": true
+        },
+        "scenarioId": "login-invalid-password",
+        "scenarioTitle": "Invalid password shows an accessible error",
+        "steps": [
+          {
+            "action": "navigate",
+            "url": "/login"
+          },
+          {
+            "action": "assert_visible",
+            "locator": {
+              "name": "Sign in",
+              "role": "heading"
+            }
+          },
+          {
+            "action": "fill",
+            "locator": {
+              "label": "Email"
+            },
+            "value": "{{testData.validEmail}}"
+          },
+          {
+            "action": "fill",
+            "locator": {
+              "label": "Password"
+            },
+            "value": "{{testData.invalidPassword}}"
+          },
+          {
+            "action": "click",
+            "locator": {
+              "name": "Sign in",
+              "role": "button"
+            }
+          },
+          {
+            "action": "assert_url_contains",
+            "value": "/login"
+          },
+          {
+            "action": "assert_visible",
+            "locator": {
+              "role": "alert"
+            }
+          },
+          {
+            "action": "assert_text_contains",
+            "locator": {
+              "role": "alert"
+            },
+            "text": "Invalid email or password"
+          },
+          {
+            "action": "screenshot",
+            "fullPage": false,
+            "name": "invalid-password-error"
+          }
+        ],
+        "targetUrl": "http://127.0.0.1:4173",
+        "timeoutMs": 120000,
+        "version": 1,
+        "viewport": {
+          "height": 900,
+          "width": 1440
+        },
+        "viewportName": "desktop",
+        "workPacketHash": "sha256:dc4763d1059594c511d86e8d16c388ce593f8aced17734b6c707fa6ac631b22d"
+      },
+      {
+        "actionBudget": 35,
+        "allowSubdomains": false,
+        "allowedDomains": ["127.0.0.1"],
+        "artifactDir": "packets/login-invalid-password-functional-mobile",
+        "browser": {
+          "actionTimeoutMs": 10000,
+          "engine": "chromium",
+          "headless": true,
+          "locale": "en-US",
+          "navigationTimeoutMs": 30000,
+          "screenshot": "only-on-failure",
+          "timezoneId": "America/New_York",
+          "trace": true
+        },
+        "contextPolicy": {
+          "allowResumeCurrentUrl": true,
+          "checkpointAfterEveryStep": true,
+          "checkpointBeforeRiskyAction": true,
+          "checkpointOnContextWarning": true,
+          "contextHardStopThresholdPercent": 85,
+          "contextWarningThresholdPercent": 75,
+          "enabled": true,
+          "handoffMaxTokensEstimate": 1800,
+          "includeCompletedStepDetail": "summary",
+          "includeRawDomInHandoff": false,
+          "includeRecentActionCount": 8,
+          "includeRecentObservationCount": 8,
+          "includeScreenshotsInHandoff": false,
+          "maxActionsPerAgentInstance": 18,
+          "maxDurationMsPerAgentInstance": 600000,
+          "maxHandoffsPerWorkPacket": 3,
+          "restoreBrowserSession": "storage-state"
+        },
+        "expectedOutcome": "User remains on /login and receives an accessible invalid-credentials error.",
+        "llmCallBudget": 0,
+        "llmPolicy": {
+          "allowedTriggers": [],
+          "maxCallsPerWorkPacket": 0,
+          "maxRepairAttempts": 1,
+          "maxTokensPerCall": 1500,
+          "strategy": "disabled"
+        },
+        "mode": "deterministic",
+        "model": null,
+        "objective": "Verify failed login handling without successful login.",
+        "packetId": "login-invalid-password-functional-mobile",
+        "planHash": "sha256:e222d1253e4c42a402467e1e57bcdaff14954041cb939616a72349c5d441afea",
+        "planId": "login-validation",
+        "priority": "high",
+        "requiresExplicitRiskApproval": false,
+        "riskFlags": [],
+        "role": "functional",
+        "runId": "run-20260101-000000-example1",
+        "safety": {
+          "allowAccountCreation": false,
+          "allowAuthentication": false,
+          "allowEmailSending": false,
+          "allowExternalNavigation": false,
+          "allowFileDownloads": false,
+          "allowInvitations": false,
+          "allowPasswordChanges": false,
+          "allowPurchases": false,
+          "allowSecuritySmoke": false,
+          "allowSocialPosting": false,
+          "allowUploads": false,
+          "destructiveActions": "deny",
+          "redactSensitiveData": true,
+          "requireEvidenceForFindings": true
+        },
+        "scenarioId": "login-invalid-password",
+        "scenarioTitle": "Invalid password shows an accessible error",
+        "steps": [
+          {
+            "action": "navigate",
+            "url": "/login"
+          },
+          {
+            "action": "assert_visible",
+            "locator": {
+              "name": "Sign in",
+              "role": "heading"
+            }
+          },
+          {
+            "action": "fill",
+            "locator": {
+              "label": "Email"
+            },
+            "value": "{{testData.validEmail}}"
+          },
+          {
+            "action": "fill",
+            "locator": {
+              "label": "Password"
+            },
+            "value": "{{testData.invalidPassword}}"
+          },
+          {
+            "action": "click",
+            "locator": {
+              "name": "Sign in",
+              "role": "button"
+            }
+          },
+          {
+            "action": "assert_url_contains",
+            "value": "/login"
+          },
+          {
+            "action": "assert_visible",
+            "locator": {
+              "role": "alert"
+            }
+          },
+          {
+            "action": "assert_text_contains",
+            "locator": {
+              "role": "alert"
+            },
+            "text": "Invalid email or password"
+          },
+          {
+            "action": "screenshot",
+            "fullPage": false,
+            "name": "invalid-password-error"
+          }
+        ],
+        "targetUrl": "http://127.0.0.1:4173",
+        "timeoutMs": 120000,
+        "version": 1,
+        "viewport": {
+          "height": 844,
+          "width": 390
+        },
+        "viewportName": "mobile",
+        "workPacketHash": "sha256:12aef337983155716401c926f6b105aadd57bb6a26bb3a3468c1b7aa0e0ab3ad"
+      },
+      {
+        "actionBudget": 35,
+        "allowSubdomains": false,
+        "allowedDomains": ["127.0.0.1"],
+        "artifactDir": "packets/pricing-lists-plans-functional-desktop",
+        "browser": {
+          "actionTimeoutMs": 10000,
+          "engine": "chromium",
+          "headless": true,
+          "locale": "en-US",
+          "navigationTimeoutMs": 30000,
+          "screenshot": "only-on-failure",
+          "timezoneId": "America/New_York",
+          "trace": true
+        },
+        "contextPolicy": {
+          "allowResumeCurrentUrl": true,
+          "checkpointAfterEveryStep": true,
+          "checkpointBeforeRiskyAction": true,
+          "checkpointOnContextWarning": true,
+          "contextHardStopThresholdPercent": 85,
+          "contextWarningThresholdPercent": 75,
+          "enabled": true,
+          "handoffMaxTokensEstimate": 1800,
+          "includeCompletedStepDetail": "summary",
+          "includeRawDomInHandoff": false,
+          "includeRecentActionCount": 8,
+          "includeRecentObservationCount": 8,
+          "includeScreenshotsInHandoff": false,
+          "maxActionsPerAgentInstance": 18,
+          "maxDurationMsPerAgentInstance": 600000,
+          "maxHandoffsPerWorkPacket": 3,
+          "restoreBrowserSession": "storage-state"
+        },
+        "expectedOutcome": "Free, Pro and Team plans are visible and Pro costs $20.",
+        "llmCallBudget": 0,
+        "llmPolicy": {
+          "allowedTriggers": [],
+          "maxCallsPerWorkPacket": 0,
+          "maxRepairAttempts": 1,
+          "maxTokensPerCall": 1500,
+          "strategy": "disabled"
+        },
+        "mode": "deterministic",
+        "model": null,
+        "objective": "Verify the pricing page renders the three plans.",
+        "packetId": "pricing-lists-plans-functional-desktop",
+        "planHash": "sha256:e222d1253e4c42a402467e1e57bcdaff14954041cb939616a72349c5d441afea",
+        "planId": "login-validation",
+        "priority": "medium",
+        "requiresExplicitRiskApproval": false,
+        "riskFlags": [],
+        "role": "functional",
+        "runId": "run-20260101-000000-example1",
+        "safety": {
+          "allowAccountCreation": false,
+          "allowAuthentication": false,
+          "allowEmailSending": false,
+          "allowExternalNavigation": false,
+          "allowFileDownloads": false,
+          "allowInvitations": false,
+          "allowPasswordChanges": false,
+          "allowPurchases": false,
+          "allowSecuritySmoke": false,
+          "allowSocialPosting": false,
+          "allowUploads": false,
+          "destructiveActions": "deny",
+          "redactSensitiveData": true,
+          "requireEvidenceForFindings": true
+        },
+        "scenarioId": "pricing-lists-plans",
+        "scenarioTitle": "Pricing lists every plan",
+        "steps": [
+          {
+            "action": "navigate",
+            "url": "/pricing"
+          },
+          {
+            "action": "assert_visible",
+            "locator": {
+              "name": "Pricing",
+              "role": "heading"
+            }
+          },
+          {
+            "action": "assert_count",
+            "count": 1,
+            "locator": {
+              "testId": "plan-free"
+            }
+          },
+          {
+            "action": "assert_text_contains",
+            "locator": {
+              "testId": "plan-pro"
+            },
+            "text": "$20"
+          },
+          {
+            "action": "assert_no_console_errors"
+          }
+        ],
+        "targetUrl": "http://127.0.0.1:4173",
+        "timeoutMs": 120000,
+        "version": 1,
+        "viewport": {
+          "height": 900,
+          "width": 1440
+        },
+        "viewportName": "desktop",
+        "workPacketHash": "sha256:42b0ccd703f44a43765cb039058c2cb511f43f7dd7756e86cd26b0cd23db2226"
+      }
+    ]
+  },
+  "version": 1
+}

@@ -1,0 +1,41 @@
+{
+  "name": "browserswarm-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BrowserSwarm: approval-first, model-agnostic, context-resilient browser testing framework",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "browserswarm": "tsx --conditions=source apps/cli/src/index.ts",
+    "fixture:serve": "tsx --conditions=source packages/test-fixtures/src/serve.ts",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "build": "pnpm -r --workspace-concurrency=1 run build",
+    "clean": "pnpm -r exec rm -rf dist"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^20.17.10",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "playwright": "1.56.1",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.18.2",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

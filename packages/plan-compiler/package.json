@@ -1,0 +1,28 @@
+{
+  "name": "@browserswarm/plan-compiler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Test-plan loading (YAML/JSON), validation, and prompt-to-plan compilation",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/opencode-adapter": "workspace:*",
+    "@browserswarm/policy-engine": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "yaml": "^2.6.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@browserswarm/test-fixtures": "workspace:*"
+  }
+}

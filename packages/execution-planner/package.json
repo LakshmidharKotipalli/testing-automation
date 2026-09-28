@@ -1,0 +1,26 @@
+{
+  "name": "@browserswarm/execution-planner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Expands a validated test plan into immutable, hash-bound work packets and renders the approval review",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/plan-compiler": "workspace:*",
+    "@browserswarm/policy-engine": "workspace:*",
+    "@browserswarm/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@browserswarm/test-fixtures": "workspace:*"
+  }
+}

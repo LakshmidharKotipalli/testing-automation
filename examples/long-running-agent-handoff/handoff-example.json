@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "handoffId": "handoff-0002",
+  "runId": "run-20260101-000000-3f9a1c2b",
+  "workPacketId": "login-invalid-password-functional-mobile",
+  "previousAgentInstanceId": "agent-001",
+  "createdAt": "2026-01-01T00:01:00.000Z",
+  "immutableWorkPacketHash": "sha256:5c1f0b4c2a7d9e8f6b3a1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f",
+  "approvedExecutionPlanHash": "sha256:9e2d4c6b8a0f1e3d5c7b9a1f3e5d7c9b1a3f5e7d9c1b3a5f7e9d1c3b5a7f9e1d",
+  "sourceCheckpointId": "checkpoint-0002",
+  "mission": {
+    "scenarioId": "login-invalid-password",
+    "scenarioTitle": "Invalid password shows an accessible error",
+    "role": "functional",
+    "objective": "Verify failed login handling without successful login.",
+    "expectedOutcome": "User remains on /login and receives an accessible invalid-credentials error.",
+    "allowedDomains": ["staging.example.com"],
+    "safetySummary": ["No account creation", "No external navigation", "No destructive actions"]
+  },
+  "executionProgress": {
+    "status": "in_progress",
+    "completedSteps": [
+      {
+        "index": 0,
+        "action": "navigate",
+        "status": "passed",
+        "summary": "Opened /login."
+      },
+      {
+        "index": 1,
+        "action": "assert_visible",
+        "status": "passed",
+        "summary": "Sign in heading is visible."
+      },
+      {
+        "index": 2,
+        "action": "fill",
+        "status": "passed",
+        "summary": "Filled email field with redacted test value."
+      }
+    ],
+    "currentStep": {
+      "index": 3,
+      "action": "fill",
+      "status": "not_started",
+      "summary": "Fill the Password field with the approved invalid test password."
+    },
+    "remainingSteps": [
+      {
+        "index": 3,
+        "action": "fill",
+        "status": "not_started",
+        "summary": "Fill Password."
+      },
+      {
+        "index": 4,
+        "action": "click",
+        "status": "not_started",
+        "summary": "Click Sign in."
+      },
+      {
+        "index": 5,
+        "action": "assert_url_contains",
+        "status": "not_started",
+        "summary": "Verify URL still contains /login."
+      },
+      {
+        "index": 6,
+        "action": "assert_visible",
+        "status": "not_started",
+        "summary": "Verify error alert is visible."
+      },
+      {
+        "index": 7,
+        "action": "assert_text_contains",
+        "status": "not_started",
+        "summary": "Verify alert text."
+      },
+      {
+        "index": 8,
+        "action": "screenshot",
+        "status": "not_started",
+        "summary": "Screenshot invalid-password-error."
+      }
+    ],
+    "skippedSteps": []
+  },
+  "currentBrowserState": {
+    "currentUrl": "https://staging.example.com/login",
+    "pageTitle": "Sign in",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "sessionRestorationAvailable": true,
+    "storageStateArtifact": "browser-state/storage-state.json",
+    "relevantVisibleStateSummary": "Sign in form is visible. Email is populated. Password is empty."
+  },
+  "importantObservations": {
+    "confirmedFacts": [
+      "Email field locator by label 'Email' works.",
+      "Page remained within staging.example.com."
+    ],
+    "relevantElementLocators": [
+      {
+        "label": "Email"
+      },
+      {
+        "label": "Password"
+      },
+      {
+        "role": "button",
+        "name": "Sign in"
+      }
+    ],
+    "consoleOrNetworkObservations": [],
+    "accessibilityObservations": [],
+    "unresolvedAmbiguities": []
+  },
+  "findings": {
+    "confirmedFindingIds": [],
+    "candidateFindingIds": [],
+    "rejectedFindingIds": []
+  },
+  "actionHistorySummary": {
+    "totalActions": 3,
+    "recentActions": [
+      {
+        "action": "navigate",
+        "status": "passed",
+        "summary": "Opened /login",
+        "stepIndex": 0
+      },
+      {
+        "action": "assert_visible",
+        "status": "passed",
+        "summary": "Sign in heading visible",
+        "stepIndex": 1
+      },
+      {
+        "action": "fill",
+        "status": "passed",
+        "summary": "Filled Email with [testData.validEmail]",
+        "stepIndex": 2
+      }
+    ],
+    "failedActions": [],
+    "repeatedActionsToAvoid": []
+  },
+  "llmUsage": {
+    "callsUsed": 0,
+    "callsRemaining": 2,
+    "contextUsage": {
+      "agentInstanceId": "agent-001",
+      "estimatedTotalTokens": 20500,
+      "contextWindowTokens": 24000,
+      "contextUtilizationPercent": 85.4,
+      "messageCount": 14,
+      "browserActionCount": 3,
+      "llmCallCount": 0,
+      "startedAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:01:00.000Z"
+    },
+    "fallbackAttemptsRemaining": 2
+  },
+  "budgetsRemaining": {
+    "workPacketActionsRemaining": 32,
+    "workPacketTimeMsRemaining": 155000,
+    "workPacketLlmCallsRemaining": 2,
+    "handoffsRemaining": 2
+  },
+  "continuationInstructions": {
+    "nextRequiredAction": "Fill Password using label 'Password' and the approved redacted invalidPassword test value, then continue in step order.",
+    "resumeFromStepIndex": 3,
+    "doNotRepeat": ["Do not re-navigate unless storage state restoration validation fails."],
+    "stopConditions": [
+      "Stop if navigation leaves staging.example.com.",
+      "Stop if any action violates safety policy.",
+      "Stop after all remaining approved steps are complete."
+    ],
+    "policyReminders": [
+      "Do not create accounts.",
+      "Do not perform destructive actions.",
+      "Do not add test scenarios."
+    ]
+  },
+  "artifactReferences": {
+    "latestScreenshot": "screenshots/step-002.png",
+    "trace": "trace/trace.zip",
+    "actionLedger": "actions.ndjson",
+    "stepResults": "step-results.json",
+    "consoleLog": "console.json",
+    "networkLog": "network.json",
+    "findings": "findings.json"
+  },
+  "conciseStatusSummary": "The prior agent completed login navigation and email entry. Resume with password entry at step 3. Storage state is available, and no findings or policy issues have occurred.",
+  "integrityHash": "sha256:de523bbc4f9ab11e1465e2743350d57c6123fcbb67ef838f5fc18578044e197e"
+}

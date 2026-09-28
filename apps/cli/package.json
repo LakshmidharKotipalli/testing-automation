@@ -1,0 +1,35 @@
+{
+  "name": "@browserswarm/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BrowserSwarm command-line interface: plan, validate, preview, approve, run, report",
+  "bin": {
+    "browserswarm": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "source": "./src/commands.ts",
+      "types": "./dist/commands.d.ts",
+      "default": "./dist/commands.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/approval": "workspace:*",
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/orchestrator": "workspace:*",
+    "@browserswarm/plan-compiler": "workspace:*",
+    "@browserswarm/reporters": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "@browserswarm/storage": "workspace:*",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@browserswarm/test-fixtures": "workspace:*",
+    "yaml": "^2.6.1"
+  }
+}

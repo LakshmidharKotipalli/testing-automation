@@ -1,0 +1,22 @@
+{
+  "name": "@browserswarm/opencode-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Provider-neutral LLM client interface, deterministic mock client and configurable OpenCode CLI client",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "zod": "^3.24.1"
+  }
+}

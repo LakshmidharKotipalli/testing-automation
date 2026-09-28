@@ -1,0 +1,51 @@
+# Checkout validation without purchase. Uses assertions only on the "Place order" button:
+# asserting it is disabled is safe; clicking it would be classified as a purchase and blocked.
+version: 1
+id: checkout-safe-validation
+name: Checkout Safe Validation
+mode: scripted
+
+target:
+  url: https://staging.example.com
+  allowedDomains:
+    - staging.example.com
+
+execution:
+  maxConcurrentAgents: 4
+
+llm:
+  strategy: disabled
+
+safety:
+  destructiveActions: deny
+  allowPurchases: false
+  allowAccountCreation: false
+
+testData:
+  shopperEmail: qa+{{runId}}@example.test
+  badCard:
+    fromEnv: QA_BAD_CARD_NUMBER
+    secret: true
+    category: payment-test-card
+
+viewports:
+  desktop: { width: 1440, height: 900 }
+  mobile: { width: 390, height: 844 }
+
+scenarios:
+  - id: checkout-invalid-card
+    title: Checkout shows validation errors for an invalid card
+    objective: Verify invalid card details show inline errors without submitting payment.
+    priority: high
+    roles: [functional, forms]
+    viewports: [desktop, mobile]
+    expectedOutcome: The card field shows an inline validation error and no order is placed.
+    steps:
+      - { action: navigate, url: /checkout }
+      - { action: assert_visible, locator: { role: heading, name: Checkout } }
+      - { action: fill, locator: { label: Email }, value: "{{testData.shopperEmail}}" }
+      - { action: fill, locator: { label: Card number }, value: "{{testData.badCard}}" }
+      - { action: press_key, key: Tab }
+      - { action: assert_text_contains, locator: { testId: card-error }, text: card number is invalid }
+      - { action: assert_disabled, locator: { role: button, name: Place order } }
+      - { action: screenshot, name: checkout-invalid-card }

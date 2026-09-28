@@ -1,0 +1,22 @@
+{
+  "name": "@browserswarm/context-lifecycle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ContextLifecycleManager: exact/estimated context accounting and checkpoint/rotation triggers",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/opencode-adapter": "workspace:*",
+    "@browserswarm/shared": "workspace:*"
+  }
+}

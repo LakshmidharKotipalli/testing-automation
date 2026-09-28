@@ -1,0 +1,48 @@
+# Multi-model OpenCode profile. The command syntax below is an EXAMPLE: adapt argsTemplate to the
+# OpenCode version you have installed (see docs/opencode.md). OpenCode manages provider credentials;
+# BrowserSwarm never needs model API keys.
+#
+# Milestone 1 note: copy the `models` and `llm` blocks into your test plan. Standalone config-file
+# merging arrives with the OpenCode workflow in Milestone 4. Models are part of the approved plan hash.
+models:
+  default:
+    provider: opencode-cli
+    command: opencode
+    argsTemplate: ["run", "--model", "{model}", "--output", "json"]
+    model: provider/fast-model
+    timeoutMs: 120000
+    contextWindowTokens: 128000
+  overrides:
+    accessibility:
+      provider: opencode-cli
+      command: opencode
+      argsTemplate: ["run", "--model", "{model}", "--output", "json"]
+      model: provider/vision-capable-model
+      timeoutMs: 120000
+      contextWindowTokens: 200000
+    verifier:
+      provider: opencode-cli
+      command: opencode
+      argsTemplate: ["run", "--model", "{model}", "--output", "json"]
+      model: provider/strong-model
+      timeoutMs: 180000
+      contextWindowTokens: 128000
+
+llm:
+  strategy: fallback-only
+  maxCallsPerWorkPacket: 2
+  maxTokensPerCall: 1500
+  maxRepairAttempts: 1
+  allowedTriggers:
+    - locator_not_found
+    - ambiguous_page_state
+    - verifier_reproduction_needed
+
+contextLifecycle:
+  enabled: true
+  contextWarningThresholdPercent: 70
+  contextHardStopThresholdPercent: 80
+  maxEstimatedTotalTokensPerAgentInstance: 24000
+  maxMessagesPerAgentInstance: 20
+  maxActionsPerAgentInstance: 18
+  maxHandoffsPerWorkPacket: 3

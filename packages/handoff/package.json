@@ -1,0 +1,30 @@
+{
+  "name": "@browserswarm/handoff",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Checkpoints, handoff documents, resume contexts and replacement-agent preflight",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/opencode-adapter": "workspace:*",
+    "@browserswarm/policy-engine": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "@browserswarm/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@browserswarm/test-fixtures": "workspace:*",
+    "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/plan-compiler": "workspace:*",
+    "@browserswarm/context-lifecycle": "workspace:*"
+  }
+}

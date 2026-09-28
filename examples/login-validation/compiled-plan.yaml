@@ -1,0 +1,148 @@
+# BrowserSwarm test plan for the local fixture site (start it with: pnpm fixture:serve).
+# Edit freely: any change requires a fresh execution plan and approval.
+version: 1
+id: login-validation
+name: Login Validation Smoke
+mode: scripted
+
+target:
+  url: http://127.0.0.1:4173
+  allowedDomains:
+    - 127.0.0.1
+  allowSubdomains: false
+
+browser:
+  engine: chromium
+  headless: true
+  locale: en-US
+  timezoneId: America/New_York
+  trace: true
+  screenshot: only-on-failure
+
+execution:
+  maxConcurrentAgents: 4
+  agentTimeoutMs: 120000
+  runTimeoutMs: 600000
+  maxActionsPerAgent: 35
+  failFast: false
+
+llm:
+  strategy: disabled
+
+contextLifecycle:
+  enabled: true
+  contextWarningThresholdPercent: 75
+  contextHardStopThresholdPercent: 85
+  maxActionsPerAgentInstance: 18
+  maxDurationMsPerAgentInstance: 600000
+  checkpointBeforeRiskyAction: true
+  checkpointAfterEveryStep: true
+  checkpointOnContextWarning: true
+  restoreBrowserSession: storage-state
+  allowResumeCurrentUrl: true
+  maxHandoffsPerWorkPacket: 3
+  includeRecentActionCount: 8
+  includeRecentObservationCount: 8
+  includeCompletedStepDetail: summary
+  handoffMaxTokensEstimate: 1800
+
+safety:
+  destructiveActions: deny
+  allowAuthentication: false
+  allowExternalNavigation: false
+  allowFileDownloads: false
+  allowUploads: false
+  allowAccountCreation: false
+  allowPurchases: false
+  allowEmailSending: false
+  redactSensitiveData: true
+  requireEvidenceForFindings: true
+
+testData:
+  validEmail: qa+{{runId}}@example.test
+  invalidPassword:
+    value: InvalidPassword123!
+    secret: true
+
+viewports:
+  desktop:
+    width: 1440
+    height: 900
+  mobile:
+    width: 390
+    height: 844
+
+scenarios:
+  - id: login-invalid-password
+    title: Invalid password shows an accessible error
+    objective: Verify failed login handling without successful login.
+    priority: high
+    roles:
+      - functional
+    viewports:
+      - desktop
+      - mobile
+    expectedOutcome: User remains on /login and receives an accessible invalid-credentials error.
+    steps:
+      - action: navigate
+        url: /login
+      - action: assert_visible
+        locator:
+          role: heading
+          name: Sign in
+      - action: fill
+        locator:
+          label: Email
+        value: "{{testData.validEmail}}"
+      - action: fill
+        locator:
+          label: Password
+        value: "{{testData.invalidPassword}}"
+      - action: click
+        locator:
+          role: button
+          name: Sign in
+      - action: assert_url_contains
+        value: /login
+      - action: assert_visible
+        locator:
+          role: alert
+      - action: assert_text_contains
+        locator:
+          role: alert
+        text: Invalid email or password
+      - action: screenshot
+        name: invalid-password-error
+
+  - id: pricing-lists-plans
+    title: Pricing lists every plan
+    objective: Verify the pricing page renders the three plans.
+    priority: medium
+    roles:
+      - functional
+    viewports:
+      - desktop
+    expectedOutcome: Free, Pro and Team plans are visible and Pro costs $20.
+    steps:
+      - action: navigate
+        url: /pricing
+      - action: assert_visible
+        locator:
+          role: heading
+          name: Pricing
+      - action: assert_count
+        locator:
+          testId: plan-free
+        count: 1
+      - action: assert_text_contains
+        locator:
+          testId: plan-pro
+        text: $20
+      - action: assert_no_console_errors
+
+reporting:
+  outputDir: ./artifacts
+  formats:
+    - json
+    - markdown
+  verifySeverityAtOrAbove: high

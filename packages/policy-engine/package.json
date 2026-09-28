@@ -1,0 +1,24 @@
+{
+  "name": "@browserswarm/policy-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Safety policy: domain allowlist, risky-action classification, per-action and handoff checks",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@browserswarm/test-fixtures": "workspace:*"
+  }
+}

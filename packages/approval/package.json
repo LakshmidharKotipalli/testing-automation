@@ -1,0 +1,26 @@
+{
+  "name": "@browserswarm/approval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mandatory approval gate: hash-bound approval records, risk approval, verification and persistence",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "@browserswarm/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@browserswarm/test-fixtures": "workspace:*"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@browserswarm/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared utilities: canonical JSON, hashing, atomic writes, ids, redaction, clocks",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}
