@@ -122,10 +122,27 @@ BROWSERSWARM_LLM_API_KEY_ENV=ANTHROPIC_API_KEY        # name OpenCode/the provid
   Leave it empty to use OpenCode's own login ([docs/opencode.md](docs/opencode.md)).
 - Shell or CI variables take precedence over the file; `BROWSERSWARM_ENV_FILE` points to another file.
 
+## Quick start with demo.icatusa.org
+
+The current target is `https://demo.icatusa.org` (the default in `.env.example`). A read-only smoke plan is in
+`examples/icatusa-demo/`:
+
+```bash
+cp .env.example .env    # BROWSERSWARM_TARGET_URL=https://demo.icatusa.org
+pnpm browserswarm validate --plan examples/icatusa-demo/compiled-plan.yaml
+pnpm browserswarm preview  --plan examples/icatusa-demo/compiled-plan.yaml --parallel 4 --write plans/execution-plan.json
+pnpm browserswarm approve  --plan examples/icatusa-demo/compiled-plan.yaml --execution-plan plans/execution-plan.json
+pnpm browserswarm run      --approved-plan plans/approved-execution-plan.json --output artifacts/icatusa-001
+```
+
+Requests to hosts outside the allowlist are blocked. If the site loads assets from CDNs, list them in
+`BROWSERSWARM_ALLOWED_DOMAINS` (the first run's `inspect_network_failures` evidence shows which ones).
+
 ## Quick start with the fixture site
 
 ```bash
-# Terminal 1: the local fixture application at BROWSERSWARM_TARGET_URL (default http://127.0.0.1:4173)
+# First set BROWSERSWARM_TARGET_URL=http://127.0.0.1:4173 in .env
+# Terminal 1: the local fixture application at BROWSERSWARM_TARGET_URL
 pnpm fixture:serve
 
 # Terminal 2
