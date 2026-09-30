@@ -110,3 +110,37 @@ Steps:
 
 Lines the compiler does not understand are reported as ambiguities and excluded; the plan is then marked
 `needsReview`. Requests to "allow purchases" and similar are recorded but never turn on risky permissions.
+
+## Phase 2 additions (all optional and hash-bound)
+
+```yaml
+# Named Chrome/Chromium projects. The matrix becomes scenario x role x viewport x project.
+# Without this block there is one implicit project and packet ids are unchanged.
+browserProjects:
+  - { name: chromium, channel: chromium }
+  - { name: chrome, channel: chrome } # needs Chrome installed; Firefox and WebKit are not representable
+
+# One conditional verifier is reserved per primary packet at preview and approved with the plan.
+# It runs only when its source packet has findings at or above reporting.verifySeverityAtOrAbove.
+verification:
+  enabled: true
+  timeoutMs: 120000
+  maxActions: 30
+
+# Opt-in guarded replay (agentic mode only). Off unless enabled.
+replay:
+  enabled: true
+```
+
+- **Projects**: packet ids, artifact directories and persistent profiles are distinct per project
+  (`{scenario}-{role}-{viewport}-{project}`); the project list is part of the execution plan hash.
+- **Verifier packets**: fresh browser session, replay disabled, never verified themselves (the approval check
+  rejects a verifier that verifies a verifier). A deterministic re-run that fails at the same step is
+  `confirmed`; a model-driven verifier can only produce `likely` (probabilistic); a failure that does not
+  reproduce is `unverified`.
+- **Replay**: a successful, non-risky agentic sequence is cached by a semantic fingerprint (mission, scope,
+  policy, model, browser, tool schemas, data references; never run ids). Entries hold role/name targets, never
+  live refs, secrets or verdicts. A replay runs every call through the gateway again, re-resolves targets from
+  the current snapshot, and still requires the model to report the verdict from fresh evidence. A safe
+  mismatch resumes the model; a policy violation blocks the packet. The cache directory is
+  `BROWSERSWARM_REPLAY_CACHE_DIR` or `replay-cache/` next to the run directory.

@@ -10,6 +10,7 @@ import {
   BrowserConfigSchema,
   BrowserProjectSchema,
   ContextPolicySchema,
+  ReplayConfigSchema,
   LlmPolicySchema,
   ModelRefSchema,
   ReportingConfigSchema,
@@ -71,6 +72,8 @@ export const WorkPacketSchema = z
     projectName: z.string().optional(),
     /** Set only on reserved verifier packets: the primary packet this one may verify. */
     verifierOf: z.string().optional(),
+    /** Present only when the plan opts into guarded replay. Never present on verifier packets. */
+    replay: ReplayConfigSchema.optional(),
     targetUrl: z.string().url(),
     allowedDomains: z.array(z.string()).min(1),
     allowSubdomains: z.boolean(),

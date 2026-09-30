@@ -33,6 +33,7 @@ export function validatePlan(plan: TestPlan): ValidationReport {
         "verification in agentic mode requires an openrouter, opencode-agent or mock verifier model",
       );
   }
+  if (plan.replay?.enabled && plan.mode !== "agentic") errors.push("replay applies to agentic mode only");
   if (plan.scenarios.some((s) => s.roles.includes("verifier")))
     errors.push(
       'the "verifier" role is reserved for reserved verifier packets and cannot be a scenario role',

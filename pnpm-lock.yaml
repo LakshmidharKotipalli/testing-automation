@@ -272,6 +272,9 @@ importers:
       '@browserswarm/core':
         specifier: workspace:*
         version: link:../core
+      '@browserswarm/mcp-browser':
+        specifier: workspace:*
+        version: link:../mcp-browser
       '@browserswarm/mcp-gateway':
         specifier: workspace:*
         version: link:../mcp-gateway
@@ -281,6 +284,16 @@ importers:
       '@browserswarm/shared':
         specifier: workspace:*
         version: link:../shared
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@browserswarm/execution-planner':
+        specifier: workspace:*
+        version: link:../execution-planner
+      '@browserswarm/test-fixtures':
+        specifier: workspace:*
+        version: link:../test-fixtures
 
   packages/mcp-browser:
     dependencies:

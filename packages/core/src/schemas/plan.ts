@@ -74,6 +74,10 @@ export const VerificationConfigSchema = z
   .strict();
 export type VerificationConfig = z.infer<typeof VerificationConfigSchema>;
 
+/** Opt-in guarded replay of previously successful, non-risky agentic sequences. Off unless enabled. */
+export const ReplayConfigSchema = z.object({ enabled: z.boolean().default(false) }).strict();
+export type ReplayConfig = z.infer<typeof ReplayConfigSchema>;
+
 export const ExecutionConfigSchema = z
   .object({
     maxConcurrentAgents: z.number().int().min(1).max(64).default(4),
@@ -339,6 +343,7 @@ export const TestPlanSchema = z
     /** Optional named browser projects. Absent means one implicit project (the `browser` block). */
     browserProjects: z.array(BrowserProjectSchema).min(1).max(8).optional(),
     verification: VerificationConfigSchema.optional(),
+    replay: ReplayConfigSchema.optional(),
     execution: ExecutionConfigSchema.default({}),
     models: ModelAssignmentSchema.default({}),
     llm: LlmPolicySchema.default({}),

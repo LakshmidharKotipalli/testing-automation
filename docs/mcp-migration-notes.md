@@ -81,3 +81,27 @@ Known limitations and unverified items:
 - OpenRouter is covered by mock HTTP tests only; no live provider call was made.
 - Phase 2 (discovery migration, browser project matrix, guarded replay, verifier
   packets) has not started. Discovery still uses the legacy direct-Playwright path.
+
+## Phase 2 implementation status (2026-09-30)
+
+- **Discovery** now runs through the same packet-owned MCP session (`readOnly: true`) and a `DiscoveryBrowser`
+  gateway with a tool allowlist (navigate, snapshot, click, type, screenshot, console, network). Writes are
+  refused inside the MCP server, including non-GET/HEAD requests, and blocked requests keep their `external`
+  / `non-read-method` kind. Verified against the fixture site (no non-GET request reached the server) and a
+  local server with an off-scope redirect and a POST form.
+- **Profiles are derived from accessibility snapshots plus network evidence.** Not available in this mode and
+  recorded as limitations: axe-core scans, viewport overflow measurement, form methods/actions/field names,
+  document language, meta descriptions, collapsed `aria-expanded` state (so collapsed accordions are not toggled;
+  tabs, expanded disclosure buttons and search landmarks are). Search is exercised by typing a word already on the
+  page into a search landmark and submitting; the request guard only lets GET through. Popup, dialog and
+  download events are not reported as separate blocked-request kinds.
+- **A detected challenge ends discovery as `blocked` with `bot_protection_challenge`**; site-owner allowlisting of
+  test traffic is the remedy. No bypass exists.
+- **Browser projects, verifier packets and guarded replay** are implemented as described in
+  `test-plan-format.md`. Chrome (as opposed to Chromium) projects are covered by plan/hash tests; the real-browser
+  matrix test uses two Chromium projects because Chrome was not assumed to be installed.
+- **Playwright removal**: `browser-tools`, the root `playwright` dependency and the CI `playwright install` step
+  are gone. The only Playwright is the one bundled by `@playwright/mcp@0.0.68`; CI installs its matching Chromium.
+  The legacy unit of `axe-core` went with `browser-tools`.
+- **Still unverified**: OpenCode real execution (see Phase 1 limitation); live OpenRouter calls; Chrome channel on a
+  machine with Chrome; the icatusa site was not re-run against the migrated discovery.

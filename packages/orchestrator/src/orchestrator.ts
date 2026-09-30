@@ -19,6 +19,8 @@ import { buildTestDataRedactor, resolveTestData } from "@browserswarm/policy-eng
 import { buildRunReport, writeReports } from "@browserswarm/reporters";
 import { envSecrets, newId, stableStringify, systemClock, type Clock } from "@browserswarm/shared";
 import { EventStore, FilesystemStorage, RunLayout, type StorageAdapter } from "@browserswarm/storage";
+import path from "node:path";
+import { ReplayCache } from "@browserswarm/llm-agent";
 import { PacketRunner, type PacketRunResult } from "./packet-runner.js";
 import { Semaphore } from "./semaphore.js";
 
@@ -26,6 +28,8 @@ export interface RunOptions {
   /** Run directory (artifacts/{runId} by default). */
   outputDir: string;
   sessionFactory?: SessionFactory;
+  /** Replay cache directory. Replay still needs `replay.enabled` in the approved plan. Default: sibling of the run dir. */
+  replayCacheDir?: string;
   modelClient?: ChatClient;
   signal?: AbortSignal;
   clock?: Clock;
@@ -151,6 +155,13 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
 
   try {
     const semaphore = new Semaphore(ep.concurrency.maxConcurrentWorkPackets);
+    const replayCache = ep.workPackets.some((p) => p.replay?.enabled)
+      ? new ReplayCache(
+          options.replayCacheDir ??
+            (options.env ?? process.env).BROWSERSWARM_REPLAY_CACHE_DIR ??
+            path.join(path.dirname(path.resolve(options.outputDir)), "replay-cache"),
+        )
+      : undefined;
     const newRunner = (packet: WorkPacket, verificationClaims?: unknown) =>
       new PacketRunner(packet, {
         storage,
@@ -166,6 +177,7 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
         signal: controller.signal,
         verifySeverityAtOrAbove: ep.reporting.verifySeverityAtOrAbove,
         ...(verificationClaims ? { verificationClaims } : {}),
+        ...(replayCache ? { replayCache } : {}),
         ...(options.replacementFactory ? { replacementFactory: options.replacementFactory } : {}),
       });
     const runners = ep.workPackets.map((packet) => newRunner(packet));

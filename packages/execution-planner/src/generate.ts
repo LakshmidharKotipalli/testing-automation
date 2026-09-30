@@ -84,6 +84,7 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
             expectedOutcome: scenario.expectedOutcome,
             mode: plan.mode === "agentic" ? "agentic" : llmCapable ? "llm-capable" : "deterministic",
             runtimeVersion: "mcp-v1",
+            ...(plan.replay?.enabled && plan.mode === "agentic" ? { replay: { enabled: true } } : {}),
             instructions: scenario.instructions,
             agent: AgentPolicySchema.parse(plan.agent ?? {}),
             model,
@@ -188,8 +189,9 @@ function reserveVerifier(plan: TestPlan, source: WorkPacket): WorkPacket {
   const model = modelForRole(plan, "verifier") ?? source.model;
   const packetId = `${source.packetId}-verifier`;
   const v = plan.verification;
+  const { replay: _replay, ...withoutReplay } = omitHash(source);
   const packet: Omit<WorkPacket, "workPacketHash"> = {
-    ...omitHash(source),
+    ...withoutReplay,
     packetId,
     role: "verifier",
     verifierOf: source.packetId,

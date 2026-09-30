@@ -49,6 +49,13 @@ export const VERDICT_TOOL: Tool = {
     additionalProperties: false,
   },
 };
+/** A successful navigate/interact call, kept without refs so a later run can re-resolve its target. */
+export interface RecordedCall {
+  tool: string;
+  args: Record<string, unknown>;
+  target?: { role: string; name: string };
+  urlAfter: string;
+}
 export interface GatewayOptions {
   packet: WorkPacket;
   session: BrowserSession;
@@ -59,6 +66,14 @@ export interface GatewayOptions {
   riskApproved: boolean;
   resolveValue?: (value: string) => string;
 }
+const pathOf = (url: string) => {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search;
+  } catch {
+    return url;
+  }
+};
 export class GuardedBrowserSession {
   readonly evidence: Evidence[] = [];
   readonly ledger: Array<Record<string, unknown>> = [];
@@ -68,6 +83,9 @@ export class GuardedBrowserSession {
   snapshot = "";
   elements = new Map<string, SnapshotElement>();
   toolCalls = 0;
+  readonly recording: RecordedCall[] = [];
+  /** False once anything unsafe to cache (secrets, elevated tools, unresolved targets) was seen. */
+  recordable = true;
   blockedReason?: string;
   private readonly ajv = new Ajv({ strict: false });
   private readonly validators = new Map<string, ReturnType<Ajv["compile"]>>();
@@ -122,6 +140,7 @@ export class GuardedBrowserSession {
   ): Promise<CallToolResult> {
     const started = Date.now();
     let outcome = "passed";
+    let recordAfter: Omit<RecordedCall, "urlAfter"> | undefined;
     try {
       this.checkBudget();
       this.toolCalls++;
@@ -152,6 +171,7 @@ export class GuardedBrowserSession {
         this.options.packet,
       );
       if (!decision.allowed) throw new GatewayBlocked(decision.reason);
+      const pendingRecord = this.prepareRecord(name, args);
       const forwarded = { ...args };
       if (this.options.resolveValue) {
         if (name === "browser_type" && typeof forwarded.text === "string")
@@ -170,11 +190,13 @@ export class GuardedBrowserSession {
       if ("filename" in forwarded) forwarded.filename = this.safePath(String(forwarded.filename));
       if (name === "browser_file_upload") throw new GatewayBlocked("upload_source_not_approved");
       const result = await this.options.session.callTool(name, forwarded);
+      if (pendingRecord && !result.isError) recordAfter = pendingRecord;
       if (name === "browser_snapshot" || /Page URL:|Snapshot/.test(toolText(result)))
         this.observe(toolText(result));
       // Every action gets a fresh authoritative URL and snapshot; model-provided labels are ignored.
       if (name !== "browser_snapshot") await this.refresh();
       await this.checkBlockedRequests();
+      if (recordAfter) this.recording.push({ ...recordAfter, urlAfter: pathOf(this.url) });
       const text = this.options.redactor.redactString(toolText(result)).slice(0, 16000);
       const ev = await this.persistEvidence(
         name === "browser_console_messages"
@@ -224,6 +246,29 @@ export class GuardedBrowserSession {
       await mkdir(this.options.artifactDir, { recursive: true });
       await appendFile(path.join(this.options.artifactDir, "tools.ndjson"), JSON.stringify(row) + "\n");
     }
+  }
+  private prepareRecord(
+    name: string,
+    args: Record<string, unknown>,
+  ): Omit<RecordedCall, "urlAfter"> | undefined {
+    const kind = TOOL_CLASSES[name];
+    if (kind === "read") return undefined;
+    if (kind !== "navigate" && kind !== "interact") {
+      this.recordable = false;
+      return undefined;
+    }
+    const { ref, ...rest } = args;
+    if (JSON.stringify(this.options.redactor.redactValue(rest)) !== JSON.stringify(rest))
+      this.recordable = false;
+    if (typeof ref === "string") {
+      const el = this.elements.get(ref);
+      if (!el || !el.name) {
+        this.recordable = false;
+        return undefined;
+      }
+      return { tool: name, args: rest, target: { role: el.role, name: el.name } };
+    }
+    return { tool: name, args: rest };
   }
   safePath(filename: string): string {
     const root = path.resolve(this.options.artifactDir);

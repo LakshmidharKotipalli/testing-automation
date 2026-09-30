@@ -163,3 +163,4 @@ export class LlmAgent {
 }
 
 export * from "./opencode-driver.js";
+export * from "./replay.js";

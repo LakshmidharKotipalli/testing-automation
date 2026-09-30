@@ -9,7 +9,15 @@ import path from "node:path";
 import { readdir } from "node:fs/promises";
 import { McpBrowserSession, type BrowserSession, type SessionFactory } from "@browserswarm/mcp-browser";
 import { GuardedBrowserSession, executeScriptedStep, GatewayBlocked } from "@browserswarm/mcp-gateway";
-import { LlmAgent, LoopGuard, OpenCodeAgentDriver } from "@browserswarm/llm-agent";
+import {
+  LlmAgent,
+  LoopGuard,
+  OpenCodeAgentDriver,
+  replayEligible,
+  replayFingerprint,
+  replaySequence,
+} from "@browserswarm/llm-agent";
+import type { ReplayCache } from "@browserswarm/llm-agent";
 import { OpenRouterClient, type ChatClient } from "@browserswarm/opencode-adapter";
 import {
   BrowserSwarmError,
@@ -69,6 +77,8 @@ export interface PacketRunnerDeps {
   verifySeverityAtOrAbove: Severity;
   /** Untrusted claims from the source packet, given to a verifier as data (never as instructions). */
   verificationClaims?: unknown;
+  /** Present only when a replay cache directory is configured; still requires packet.replay.enabled. */
+  replayCache?: ReplayCache;
   /** Milestone 3 plugs in automatic replacement. Without it a rotation blocks the packet after the handoff. */
   replacementFactory?: ReplacementAgentFactory;
 }
@@ -125,6 +135,7 @@ export class PacketRunner {
   private resumeOutcome = "not_required";
   private blockedByHandoffLimit = false;
   private blockedByCheckpointFailure = false;
+  private replayFingerprint?: string;
 
   constructor(
     private readonly packet: WorkPacket,
@@ -200,7 +211,8 @@ export class PacketRunner {
       this.emit("packet.started", { role: this.packet.role, viewport: this.packet.viewportName });
       await this.openContext();
       const instance = this.newInstance();
-      this.agent = this.makeAgent(instance);
+      const replayHandoff = await this.tryReplay(instance);
+      this.agent = this.makeAgent(instance, replayHandoff);
       result = await this.agent.run(this.host(), 0);
       await this.handleResult(result);
     } catch (error) {
@@ -211,6 +223,59 @@ export class PacketRunner {
       await this.closeContext();
     }
     return this.finish();
+  }
+
+  /**
+   * Opt-in guarded replay. Never for verifiers or non-agentic packets. Every replayed call goes through the
+   * gateway; a mismatch hands control to the model, a policy violation throws and ends the packet.
+   */
+  private async tryReplay(agent: AgentInstanceHandle): Promise<unknown> {
+    const cache = this.deps.replayCache;
+    if (
+      !cache ||
+      !this.session ||
+      !this.gateway ||
+      !this.packet.replay?.enabled ||
+      this.packet.role === "verifier" ||
+      this.packet.mode !== "agentic" ||
+      this.packet.model?.provider === "opencode-agent"
+    )
+      return undefined;
+    this.replayFingerprint = replayFingerprint(
+      this.packet,
+      this.session.tools,
+      Object.keys(this.deps.testData.values),
+    );
+    const entry = await cache.get(this.replayFingerprint);
+    if (!entry) return undefined;
+    this.emit("replay.hit", { calls: entry.calls.length }, agent.id);
+    const outcome = await replaySequence(this.gateway, entry);
+    this.emit(
+      outcome.status === "complete" ? "replay.completed" : "replay.mismatch",
+      {
+        replayed: outcome.replayed,
+        total: outcome.total,
+        ...(outcome.reason ? { reason: outcome.reason } : {}),
+      },
+      agent.id,
+    );
+    return {
+      replay: {
+        status: outcome.status,
+        replayedCalls: outcome.replayed,
+        totalCalls: outcome.total,
+        ...(outcome.reason ? { reason: outcome.reason } : {}),
+        note: "The browser is already at the replayed state. Take a fresh snapshot, finish or continue the mission on your own judgment, and report the verdict from evidence captured in this run.",
+      },
+    };
+  }
+
+  private async storeReplay(agent: AgentInstanceHandle): Promise<void> {
+    const cache = this.deps.replayCache;
+    if (!cache || !this.replayFingerprint || !this.gateway || !replayEligible(this.packet, this.gateway))
+      return;
+    await cache.put(this.replayFingerprint, this.gateway.recording, this.deps.clock.iso());
+    this.emit("replay.stored", { calls: this.gateway.recording.length }, agent.id);
   }
 
   private newInstance(previous?: AgentInstanceHandle, handoffId?: string): AgentInstanceHandle {
@@ -602,6 +667,7 @@ export class PacketRunner {
         this.emit("agent.terminated", { reason: "completed" }, agent.id);
         await this.transition("COMPLETED");
         this.outcome = "passed";
+        await this.storeReplay(agent).catch(() => undefined);
         this.emit("packet.completed", { steps: this.packet.steps.length });
         return;
       case "failed":

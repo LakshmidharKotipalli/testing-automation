@@ -40,6 +40,10 @@ export function renderExecutionPlanReview(
   section("Mode", [ep.mode]);
   section("Scenarios", [String(s.scenarioCount)]);
   section("Work packets", [String(s.workPacketCount)]);
+  if (ep.workPackets.some((p) => p.replay?.enabled))
+    section("Guarded replay (opt-in)", [
+      "Successful, non-risky agentic sequences may be replayed through the same gateway checks; the model still reports the verdict from fresh evidence.",
+    ]);
   if (ep.verifierPackets?.length)
     section("Conditional verifier packets (approved now, run only if a finding meets the threshold)", [
       `${ep.verifierPackets.length} reserved; trigger: severity >= ${ep.reporting.verifySeverityAtOrAbove}`,
