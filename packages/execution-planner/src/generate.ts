@@ -1,4 +1,5 @@
 import {
+  AgentPolicySchema,
   computeExecutionPlanHash,
   computePlanHash,
   computeRiskPlanHash,
@@ -9,6 +10,7 @@ import {
   ValidationError,
   type AgentRole,
   type ExecutionPlan,
+  type BrowserProject,
   type ExecutionPlanSummary,
   type ModelRef,
   type TestPlan,
@@ -43,54 +45,76 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
   const runId = options.runId ?? newRunId(new Date(clock.now()));
   const planHash = computePlanHash(plan);
   const packets: WorkPacket[] = [];
+  const projects: Array<BrowserProject | undefined> = plan.browserProjects?.length
+    ? plan.browserProjects
+    : [undefined];
 
   for (const scenario of plan.scenarios) {
     const scenarioFlags = report.riskFlags.filter((f) => f.scenarioId === scenario.id);
     for (const role of scenario.roles) {
       for (const viewportName of scenario.viewports) {
-        const viewport = plan.viewports[viewportName];
-        if (!viewport) throw new ValidationError("unknown viewport", [viewportName]);
-        const model = modelForRole(plan, role);
-        const llmCapable =
-          plan.llm.strategy !== "disabled" && model !== null && plan.llm.maxCallsPerWorkPacket > 0;
-        const packetId = `${scenario.id}-${role}-${viewportName}`;
-        const packet: Omit<WorkPacket, "workPacketHash"> = {
-          version: 1,
-          packetId,
-          runId,
-          planId: plan.id,
-          scenarioId: scenario.id,
-          scenarioTitle: scenario.title,
-          objective: scenario.objective,
-          priority: scenario.priority,
-          role,
-          viewportName,
-          viewport,
-          browser: plan.browser,
-          targetUrl: plan.target.url,
-          allowedDomains: plan.target.allowedDomains,
-          allowSubdomains: plan.target.allowSubdomains,
-          steps: scenario.steps,
-          expectedOutcome: scenario.expectedOutcome,
-          mode: llmCapable ? "llm-capable" : "deterministic",
-          model,
-          llmPolicy: plan.llm,
-          contextPolicy: plan.contextLifecycle,
-          safety: plan.safety,
-          timeoutMs: plan.execution.agentTimeoutMs,
-          actionBudget: plan.execution.maxActionsPerAgent,
-          llmCallBudget: llmCapable ? plan.llm.maxCallsPerWorkPacket : 0,
-          artifactDir: `packets/${packetId}`,
-          planHash,
-          riskFlags: scenarioFlags,
-          requiresExplicitRiskApproval: scenarioFlags.length > 0,
-          // Only present for planner-generated scenarios, so instruction-led packet hashes are unchanged.
-          ...(scenario.rationale ? { rationale: scenario.rationale } : {}),
-        };
-        packets.push({ ...packet, workPacketHash: computeWorkPacketHash(packet) });
+        for (const project of projects) {
+          const viewport = plan.viewports[viewportName];
+          if (!viewport) throw new ValidationError("unknown viewport", [viewportName]);
+          const model = modelForRole(plan, role);
+          const llmCapable =
+            plan.llm.strategy !== "disabled" && model !== null && plan.llm.maxCallsPerWorkPacket > 0;
+          /* An implicit project keeps the historical packet id; named projects extend it. */
+          const packetId = project
+            ? `${scenario.id}-${role}-${viewportName}-${project.name}`
+            : `${scenario.id}-${role}-${viewportName}`;
+          const packet: Omit<WorkPacket, "workPacketHash"> = {
+            version: 1,
+            packetId,
+            runId,
+            planId: plan.id,
+            scenarioId: scenario.id,
+            scenarioTitle: scenario.title,
+            objective: scenario.objective,
+            priority: scenario.priority,
+            role,
+            viewportName,
+            viewport,
+            browser: project ? { ...plan.browser, channel: project.channel } : plan.browser,
+            ...(project ? { projectName: project.name } : {}),
+            targetUrl: plan.target.url,
+            allowedDomains: plan.target.allowedDomains,
+            allowSubdomains: plan.target.allowSubdomains,
+            steps: scenario.steps,
+            expectedOutcome: scenario.expectedOutcome,
+            mode: plan.mode === "agentic" ? "agentic" : llmCapable ? "llm-capable" : "deterministic",
+            runtimeVersion: "mcp-v1",
+            ...(plan.replay?.enabled && plan.mode === "agentic" ? { replay: { enabled: true } } : {}),
+            instructions: scenario.instructions,
+            agent: AgentPolicySchema.parse(plan.agent ?? {}),
+            model,
+            llmPolicy: plan.mode === "agentic" ? { ...plan.llm, strategy: "guided" } : plan.llm,
+            contextPolicy: plan.contextLifecycle,
+            safety: plan.safety,
+            timeoutMs: plan.execution.agentTimeoutMs,
+            actionBudget: plan.execution.maxActionsPerAgent,
+            llmCallBudget:
+              plan.mode === "agentic"
+                ? AgentPolicySchema.parse(plan.agent ?? {}).maxLlmCalls
+                : llmCapable
+                  ? plan.llm.maxCallsPerWorkPacket
+                  : 0,
+            artifactDir: `packets/${packetId}`,
+            planHash,
+            riskFlags: scenarioFlags,
+            requiresExplicitRiskApproval: scenarioFlags.length > 0,
+            // Only present for planner-generated scenarios, so instruction-led packet hashes are unchanged.
+            ...(scenario.rationale ? { rationale: scenario.rationale } : {}),
+          };
+          packets.push({ ...packet, workPacketHash: computeWorkPacketHash(packet) });
+        }
       }
     }
   }
+
+  const verifierPackets: WorkPacket[] = plan.verification?.enabled
+    ? packets.map((source) => reserveVerifier(plan, source))
+    : [];
 
   const concurrency = Math.max(
     1,
@@ -124,14 +148,16 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
       runTimeoutMs: plan.execution.runTimeoutMs,
     },
     models,
-    llm: plan.llm,
+    llm: plan.mode === "agentic" ? { ...plan.llm, strategy: "guided" } : plan.llm,
     contextLifecycle: plan.contextLifecycle,
     safety: plan.safety,
     browser: plan.browser,
+    ...(plan.browserProjects ? { browserProjects: plan.browserProjects } : {}),
     reporting: plan.reporting,
     testData: plan.testData,
     workPackets: packets,
-    summary: summarize(plan, packets, concurrency),
+    ...(verifierPackets.length ? { verifierPackets } : {}),
+    summary: summarize(plan, packets, concurrency, verifierPackets),
     riskFlags,
     riskPlanHash: riskFlags.length ? computeRiskPlanHash(riskFlags, executionPlanId) : null,
     requiresExplicitRiskApproval: riskFlags.length > 0,
@@ -153,7 +179,54 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
   return ExecutionPlanSchema.parse(executionPlan);
 }
 
-function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): ExecutionPlanSummary {
+/**
+ * A verifier is a fresh-session repeat of its source packet under the verifier role: deterministic sources
+ * are re-run step for step, agentic sources are re-run by a model asked to reproduce the failure. It gets its
+ * own model, budgets and packet directory, and it can never have a verifier of its own.
+ */
+function reserveVerifier(plan: TestPlan, source: WorkPacket): WorkPacket {
+  const agentic = source.mode === "agentic";
+  const model = modelForRole(plan, "verifier") ?? source.model;
+  const packetId = `${source.packetId}-verifier`;
+  const v = plan.verification;
+  const { replay: _replay, ...withoutReplay } = omitHash(source);
+  const packet: Omit<WorkPacket, "workPacketHash"> = {
+    ...withoutReplay,
+    packetId,
+    role: "verifier",
+    verifierOf: source.packetId,
+    model,
+    mode: agentic ? "agentic" : "deterministic",
+    ...(agentic
+      ? {
+          instructions: [
+            ...(source.instructions ?? []),
+            "You are an independent verifier. A previous run reported a failure for this mission. Reproduce it from scratch in this fresh browser and report the truth; report pass if it does not reproduce.",
+          ],
+        }
+      : {}),
+    llmPolicy: agentic
+      ? source.llmPolicy
+      : { ...source.llmPolicy, strategy: "disabled", maxCallsPerWorkPacket: 0 },
+    llmCallBudget: agentic ? source.llmCallBudget : 0,
+    timeoutMs: v?.timeoutMs ?? source.timeoutMs,
+    actionBudget: v?.maxActions ?? source.actionBudget,
+    artifactDir: `packets/${packetId}`,
+  };
+  return { ...packet, workPacketHash: computeWorkPacketHash(packet) };
+}
+
+function omitHash(p: WorkPacket): Omit<WorkPacket, "workPacketHash"> {
+  const { workPacketHash: _hash, ...rest } = p;
+  return rest;
+}
+
+function summarize(
+  plan: TestPlan,
+  packets: WorkPacket[],
+  concurrency: number,
+  verifiers: WorkPacket[] = [],
+): ExecutionPlanSummary {
   const cp = plan.contextLifecycle;
   let maxInstances = 0;
   let handoffs = 0;
@@ -161,7 +234,7 @@ function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): 
   for (const p of packets) {
     const perInstance = cp.maxActionsPerAgentInstance ?? Number.POSITIVE_INFINITY;
     let rotations = cp.enabled ? Math.max(0, Math.ceil(p.steps.length / perInstance) - 1) : 0;
-    if (cp.enabled && p.mode === "llm-capable")
+    if (cp.enabled && p.mode !== "deterministic")
       rotations = Math.max(rotations, Math.min(1, cp.maxHandoffsPerWorkPacket));
     rotations = Math.min(rotations, cp.maxHandoffsPerWorkPacket);
     maxInstances += 1 + rotations;
@@ -181,13 +254,17 @@ function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): 
   return {
     scenarioCount: plan.scenarios.length,
     workPacketCount: packets.length,
+    ...(verifiers.length ? { verifierPacketCount: verifiers.length } : {}),
     deterministicPackets: packets.filter((p) => p.mode === "deterministic").length,
-    llmCapablePackets: packets.filter((p) => p.mode === "llm-capable").length,
+    llmCapablePackets: packets.filter((p) => p.mode !== "deterministic").length,
     maxConcurrentWorkPackets: concurrency,
     maxConcurrentBrowserContexts: concurrency,
-    maxBrowserActions: packets.reduce((n, p) => n + p.actionBudget, 0),
-    maxLlmCalls,
-    estimatedMaxTokens: maxLlmCalls * plan.llm.maxTokensPerCall,
+    maxBrowserActions: [...packets, ...verifiers].reduce((n, p) => n + p.actionBudget, 0),
+    maxLlmCalls: maxLlmCalls + verifiers.reduce((n, p) => n + p.llmCallBudget, 0),
+    estimatedMaxTokens: [...packets, ...verifiers].reduce(
+      (n, p) => n + (p.mode === "agentic" ? p.agent!.maxTokens : p.llmCallBudget * plan.llm.maxTokensPerCall),
+      0,
+    ),
     estimatedMaxAgentInstances: maxInstances,
     estimatedContextHandoffs: handoffs,
     estimatedCheckpoints: checkpoints,
@@ -196,10 +273,14 @@ function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): 
       max: Math.min(plan.execution.runTimeoutMs, waves * plan.execution.agentTimeoutMs),
     },
     testDataCategories,
-    browserMatrix: [...new Set(packets.map((p) => p.viewportName))].map((viewportName) => ({
-      engine: plan.browser.engine,
-      viewportName,
-      viewport: plan.viewports[viewportName] as { width: number; height: number },
-    })),
+    browserMatrix: [...new Set(packets.map((p) => `${p.projectName ?? ""}|${p.viewportName}`))].map((k) => {
+      const [project, viewportName] = k.split("|") as [string, string];
+      return {
+        engine: plan.browser.engine,
+        ...(project ? { project } : {}),
+        viewportName,
+        viewport: plan.viewports[viewportName] as { width: number; height: number },
+      };
+    }),
   };
 }

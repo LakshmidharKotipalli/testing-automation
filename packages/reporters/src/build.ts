@@ -14,6 +14,7 @@ export interface BuildReportInput {
   runState: RunState;
   packets: PacketReport[];
   findings: Finding[];
+  verification?: RunReport["verification"];
   startedAt: string;
   endedAt: string;
   generatedAt: string;
@@ -73,7 +74,8 @@ export function buildRunReport(input: BuildReportInput): RunReport {
       modelsConfigured: ep.models,
       modelsInvoked: input.modelsInvoked,
       browserMatrix: ep.summary.browserMatrix.map(
-        (b) => `${b.engine} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`,
+        (b) =>
+          `${b.engine}${b.project ? ` [${b.project}]` : ""} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`,
       ),
       concurrency: ep.concurrency.maxConcurrentWorkPackets,
       safetyPolicy: ep.safety,
@@ -94,18 +96,27 @@ export function buildRunReport(input: BuildReportInput): RunReport {
       deterministicOperations: packets.reduce((n, p) => n + p.deterministicActions, 0),
       llmAssistedOperations: packets.reduce((n, p) => n + p.llmAssistedActions, 0),
       totalActions: packets.reduce((n, p) => n + p.deterministicActions + p.llmAssistedActions, 0),
+      llmCost: packets.some((p) => p.telemetry?.cost === null)
+        ? null
+        : packets.reduce((n, p) => n + (p.telemetry?.cost ?? 0), 0),
+      usageExact: packets.every((p) => p.telemetry?.usageExact !== false),
+      toolCalls: packets.reduce((n, p) => n + (p.telemetry?.toolCalls ?? 0), 0),
+      loopGuardTrips: packets.reduce((n, p) => n + (p.telemetry?.loopGuardTrips ?? 0), 0),
       llmCalls: input.llmCalls,
       llmTokens: input.llmTokens,
       contextWarnings: input.contextWarnings,
       checkpointCount: input.checkpointCount,
       handoffCount: handoffs.length,
       replacementAgentCount: replacements,
-      packetsResumedSuccessfully: packets.filter((p) => p.resumeOutcome.startsWith("resumed")).length,
+      packetsResumedSuccessfully: packets.filter(
+        (p) => p.resumeOutcome.startsWith("resumed") || p.resumeOutcome === "storage_state_restored",
+      ).length,
       packetsBlockedByCheckpointOrHandoffFailure: input.packetsBlockedByCheckpointFailure,
       packetsBlockedByHandoffLimit: input.packetsBlockedByHandoffLimit,
       maxObservedConcurrency: input.maxObservedConcurrency,
     },
     packets,
+    ...(input.verification ? { verification: input.verification } : {}),
     findings: input.findings,
     limitations,
   };

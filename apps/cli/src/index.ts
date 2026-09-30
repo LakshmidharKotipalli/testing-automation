@@ -97,6 +97,11 @@ async function main(argv: string[]): Promise<number> {
 
   program
     .command("preview")
+    .option("--provider <provider>", "openrouter | opencode")
+    .option("--model <model>", "model identifier")
+    .option("--headed", "show packet browsers")
+    .option("--persistent-profile", "persist a private packet browser profile")
+    .option("--model-profile <name>", "preset from browserswarm.config.yaml")
     .description("Generate the exact execution plan and show the approval review (starts no browser)")
     .requiredOption("--plan <file>")
     .option("--parallel <n>", "maximum concurrent work packets", positiveInt)
@@ -112,6 +117,11 @@ async function main(argv: string[]): Promise<number> {
 
   program
     .command("approve")
+    .option("--provider <provider>", "openrouter | opencode")
+    .option("--model <model>", "model identifier")
+    .option("--headed", "show packet browsers")
+    .option("--persistent-profile", "persist a private packet browser profile")
+    .option("--model-profile <name>", "preset from browserswarm.config.yaml")
     .description("Approve, reject, export or edit an exact execution plan")
     .requiredOption("--plan <file>")
     .requiredOption("--execution-plan <file>")
@@ -128,6 +138,11 @@ async function main(argv: string[]): Promise<number> {
   scopeOptions(
     program
       .command("run")
+      .option("--provider <provider>", "openrouter | opencode")
+      .option("--model <model>", "model identifier")
+      .option("--headed", "show packet browsers")
+      .option("--persistent-profile", "persist a private packet browser profile")
+      .option("--model-profile <name>", "preset from browserswarm.config.yaml")
       .description(
         "Run an approved plan; or plan+approve+run from --plan/--prompt (instruction-led); or discover+plan+approve+run from a URL alone (autonomous)",
       )

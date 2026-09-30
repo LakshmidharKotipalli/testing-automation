@@ -1,0 +1,30 @@
+{
+  "name": "@browserswarm/llm-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/agent-runtime": "workspace:*",
+    "@browserswarm/context-lifecycle": "workspace:*",
+    "@browserswarm/mcp-browser": "workspace:*",
+    "@browserswarm/mcp-gateway": "workspace:*",
+    "@browserswarm/opencode-adapter": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/test-fixtures": "workspace:*"
+  }
+}

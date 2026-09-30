@@ -1,10 +1,5 @@
-import {
-  PageObservers,
-  runAxe,
-  type BrowserHandle,
-  type BrowserLauncher,
-  PlaywrightLauncher,
-} from "@browserswarm/browser-tools";
+import { McpBrowserSession, type BrowserSession, type SessionFactory } from "@browserswarm/mcp-browser";
+import { DiscoveryBrowser, GatewayBlocked } from "@browserswarm/mcp-gateway";
 import { ContextLifecycleManager } from "@browserswarm/context-lifecycle";
 import {
   computeDiscoveryCheckpointHash,
@@ -24,21 +19,12 @@ import {
 import { checkUrl, type DomainScope } from "@browserswarm/policy-engine";
 import { newId, padSequence, truncate, type Clock, type Redactor, systemClock } from "@browserswarm/shared";
 import { RunLayout, type EventStore, type StorageAdapter } from "@browserswarm/storage";
-import type { BrowserContext, Page } from "playwright";
+import { readdir } from "node:fs/promises";
+import path from "node:path";
 import { classifyControl, isCookieDeclineLabel } from "./control-safety.js";
-import {
-  CONTROL_ATTR,
-  extractPage,
-  measureOverflow,
-  type ExtractedForm,
-  type PageExtract,
-} from "./extract.js";
-import {
-  guardPage,
-  installReadOnlyGuard,
-  READ_ONLY_CONTEXT_OPTIONS,
-  type DiscoveryBlockedRequest,
-} from "./guards.js";
+import type { ExtractedForm, PageExtract } from "./extract.js";
+import type { DiscoveryBlockedRequest } from "./guards.js";
+import { extractFromSnapshot } from "./snapshot-extract.js";
 import { verifyDiscoveryAuthorization, verifyDiscoveryPacket } from "./packet.js";
 import type {
   DiscoveredRouteRef,
@@ -46,14 +32,15 @@ import type {
   InteractionRecord,
   RestrictedCandidate,
   RouteObservation,
-  SearchExercise,
 } from "./types.js";
 
 export interface DiscoveryDeps {
   storage: StorageAdapter;
   events: EventStore;
   redactor: Redactor;
-  launcher?: BrowserLauncher;
+  sessionFactory?: SessionFactory;
+  /** Optional Chromium executable for the MCP browser. */
+  executablePath?: string;
   clock?: Clock;
   signal?: AbortSignal;
 }
@@ -128,9 +115,12 @@ export class DiscoveryLeadAgent {
   private cookieBannerHandled = false;
   private maxDepthReached = 0;
   private startMs = 0;
-  private context?: BrowserContext;
-  private page?: Page;
-  private observers?: PageObservers;
+  private session?: BrowserSession;
+  private browser?: DiscoveryBrowser;
+  private sessionDir = "";
+  private consoleSeen = 0;
+  private routeNetwork: Awaited<ReturnType<DiscoveryBrowser["network"]>> = [];
+  private challenge = false;
   private lifecycle?: ContextLifecycleManager;
 
   constructor(
@@ -177,6 +167,12 @@ export class DiscoveryLeadAgent {
   /** Stop conditions checked between routes. Returns the reason, or undefined to continue. */
   private stopReason(): { reason: string; partial: boolean } | undefined {
     const p = this.policy;
+    if (this.challenge)
+      return {
+        reason:
+          "BLOCKED: bot_protection_challenge (a challenge page was detected; ask the site owner to allowlist test traffic)",
+        partial: true,
+      };
     if (this.deps.signal?.aborted) return { reason: "cancelled by user", partial: true };
     if (this.elapsed() >= p.maxDurationMs)
       return { reason: `maxDurationMs (${p.maxDurationMs}) reached`, partial: true };
@@ -206,20 +202,18 @@ export class DiscoveryLeadAgent {
     this.addDiscovered(start, this.base, 0, undefined, "entry", false);
     this.frontier.push({ url: new URL(start, this.origin).toString(), depth: 0 });
 
-    const launcher = this.deps.launcher ?? new PlaywrightLauncher();
-    let browser: BrowserHandle | undefined;
     let status: DiscoveryRunResult["status"] = "completed";
     let stop = "";
     this.emit("discovery.started", { target: this.base, allowedDomains: this.packet.request.allowedDomains });
     try {
-      browser = await launcher.launch(this.packet.request.browser);
-      await this.startInstance(browser);
+      await this.startInstance();
       let sinceCheckpoint = 0;
       for (;;) {
         const s = this.stopReason();
         if (s) {
           stop = s.reason;
           if (s.partial) status = "partial";
+          if (this.challenge) status = "blocked";
           break;
         }
         const decision = this.lifecycle?.evaluate();
@@ -232,7 +226,7 @@ export class DiscoveryLeadAgent {
             status = "partial";
             break;
           }
-          await this.rotate(browser, decision.reason);
+          await this.rotate(decision.reason);
         }
         const entry = this.frontier.shift() as FrontierEntry;
         const before = this.discovered.size;
@@ -256,12 +250,14 @@ export class DiscoveryLeadAgent {
         status === "completed" ? "completed" : this.deps.signal?.aborted ? "cancelled" : "limit_reached",
       );
     } catch (error) {
-      status = "failed";
+      status =
+        error instanceof GatewayBlocked && error.message === "bot_protection_challenge"
+          ? "blocked"
+          : "failed";
       stop = `unrecoverable error: ${this.r((error as Error).message ?? String(error), 300)}`;
       this.emit("discovery.failed", { error: stop });
     } finally {
       await this.stopInstance().catch(() => undefined);
-      await browser?.close().catch(() => undefined);
     }
     if (status !== "completed") this.limitations.push(`Discovery ${status}: ${stop}`);
     if (this.frontier.length)
@@ -338,7 +334,7 @@ export class DiscoveryLeadAgent {
   // Agent instances and browser contexts
   // ---------------------------------------------------------------------------------------------------
 
-  private async startInstance(browser: BrowserHandle, previous?: string, handoffId?: string): Promise<void> {
+  private async startInstance(previous?: string, handoffId?: string): Promise<void> {
     this.instanceSeq++;
     this.instanceId = `discovery-lead-i${padSequence(this.instanceSeq, 2)}`;
     this.lifecycle = new ContextLifecycleManager(this.packet.request.contextLifecycle, {
@@ -347,34 +343,42 @@ export class DiscoveryLeadAgent {
       clock: this.clock,
     });
     const primary = Object.values(this.policy.viewports)[0] ?? { width: 1440, height: 900 };
-    const b = this.packet.request.browser;
-    this.context = await browser.newContext({
-      ...READ_ONLY_CONTEXT_OPTIONS,
-      viewport: primary,
-      locale: b.locale,
-      timezoneId: b.timezoneId,
-    });
+    const r = this.packet.request;
     const onBlocked = (x: DiscoveryBlockedRequest) => {
       const item = { ...x, url: this.r(x.url, 500) };
       if (this.blockedRequests.length < 500) this.blockedRequests.push(item);
       this.emit("discovery.request.blocked", { url: item.url, method: item.method, kind: item.kind });
     };
-    // The first page of the context is the agent's own (the "page" event fires before newPage() resolves).
-    await installReadOnlyGuard(
-      this.context,
-      this.scope,
-      this.base,
-      onBlocked,
-      (p) => !this.page || p === this.page,
-    );
-    this.page = await this.context.newPage();
-    this.page.setDefaultTimeout(b.actionTimeoutMs);
-    this.page.setDefaultNavigationTimeout(b.navigationTimeoutMs);
-    guardPage(this.page, onBlocked);
-    this.observers = new PageObservers(this.deps.redactor, 2000);
-    this.observers.attach(this.page);
-    if (b.trace)
-      await this.context.tracing.start({ screenshots: false, snapshots: true }).catch(() => undefined);
+    /* Each instance owns one MCP server, one private directory and independent browser state. */
+    this.sessionDir = this.deps.storage.resolve(`${RunLayout.discovery.lead.dir}/mcp/${this.instanceId}`);
+    const factory: SessionFactory = this.deps.sessionFactory ?? ((o) => new McpBrowserSession(o));
+    const signal = this.deps.signal ?? new AbortController().signal;
+    this.session = factory({
+      packet: {
+        browser: r.browser,
+        viewport: primary,
+        targetUrl: r.targetUrl,
+        allowedDomains: r.allowedDomains,
+        allowSubdomains: r.allowSubdomains,
+        timeoutMs: Math.max(1000, this.policy.maxDurationMs),
+        workPacketHash: this.packet.packetHash,
+      },
+      artifactDir: this.sessionDir,
+      signal,
+      readOnly: true,
+      ...(this.deps.executablePath ? { executablePath: this.deps.executablePath } : {}),
+    });
+    await this.session.start();
+    this.consoleSeen = 0;
+    this.browser = new DiscoveryBrowser({
+      session: this.session,
+      scope: this.scope,
+      base: this.base,
+      artifactDir: this.sessionDir,
+      redactor: this.deps.redactor,
+      signal,
+      onBlocked: (b) => onBlocked({ ...b }),
+    });
     await this.deps.storage.writeJson(RunLayout.discovery.lead.agentInstance(this.instanceId), {
       agentInstanceId: this.instanceId,
       runId: this.packet.runId,
@@ -390,20 +394,19 @@ export class DiscoveryLeadAgent {
   }
 
   private async stopInstance(): Promise<void> {
-    if (!this.context) return;
-    if (this.packet.request.browser.trace) {
-      const rel = `${RunLayout.discovery.lead.traceDir}/trace-${this.instanceId}.zip`;
-      await this.context.tracing
-        .stop({ path: this.deps.storage.resolve(rel) })
-        .then(() => this.artifacts.add(rel))
-        .catch(() => undefined);
-    }
-    await this.context.close().catch(() => undefined);
-    this.context = undefined;
-    this.page = undefined;
+    if (!this.session) return;
+    await this.browser?.newBlocks().catch(() => undefined);
+    await this.session.close().catch(() => undefined);
+    /* MCP writes traces (*.trace) and other evidence under the private directory; record them. */
+    const dir = path.join(this.deps.storage.resolve(RunLayout.discovery.lead.dir), "mcp", this.instanceId);
+    for (const f of await readdir(dir, { recursive: true }).catch(() => [] as string[]))
+      if (/\.(trace|network|png)$/.test(String(f)))
+        this.artifacts.add(`${RunLayout.discovery.lead.dir}/mcp/${this.instanceId}/${String(f)}`);
+    this.session = undefined;
+    this.browser = undefined;
   }
 
-  private async rotate(browser: BrowserHandle, reason: string): Promise<void> {
+  private async rotate(reason: string): Promise<void> {
     const cp = await this.writeCheckpoint("rotation");
     const previous = this.instanceId;
     this.handoffSeq++;
@@ -442,7 +445,7 @@ export class DiscoveryLeadAgent {
     };
     await this.stopInstance();
     await settle();
-    await this.startInstance(browser, previous, base.handoffId);
+    await this.startInstance(previous, base.handoffId);
     const doc: DiscoveryHandoff = {
       ...base,
       replacementAgentInstanceId: this.instanceId,
@@ -552,12 +555,9 @@ export class DiscoveryLeadAgent {
   }
 
   private async visit(entry: FrontierEntry): Promise<void> {
-    const page = this.page as Page;
-    const observers = this.observers as PageObservers;
+    const browser = this.browser as DiscoveryBrowser;
     const key = routeKey(entry.url, this.base) ?? entry.url;
     const ref = this.discovered.get(key);
-    const consoleStart = observers.console.length;
-    const networkStart = observers.network.length;
     const obs: RouteObservation = {
       evidenceId: `ev-route-${padSequence(this.observations.length + 1, 3)}`,
       path: key,
@@ -586,11 +586,18 @@ export class DiscoveryLeadAgent {
 
     const started = this.clock.now();
     this.counters.navigations++;
-    let response;
+    let response: { status?: number; url: string };
     try {
-      response = await page.goto(check.url, { waitUntil: "load" });
+      response = await browser.goto(check.url);
     } catch (error) {
-      obs.status = "error";
+      if (error instanceof GatewayBlocked && error.message === "bot_protection_challenge") {
+        this.challenge = true;
+        obs.status = "blocked";
+        obs.error = "BLOCKED: bot_protection_challenge";
+        this.blockedRoutes.push({ path: key, reason: obs.error, category: "external_navigation" });
+        return;
+      }
+      obs.status = error instanceof GatewayBlocked ? "blocked" : "error";
       obs.error = this.r(((error as Error).message ?? String(error)).split("\n")[0] ?? "navigation failed");
       this.blockedRoutes.push({ path: key, reason: obs.error });
       await this.ledger({
@@ -603,8 +610,8 @@ export class DiscoveryLeadAgent {
       return;
     }
     this.counters.routesVisited++;
-    obs.httpStatus = response?.status();
-    const finalKey = routeKey(page.url(), this.base) ?? key;
+    obs.httpStatus = response.status;
+    const finalKey = routeKey(browser.url, this.base) ?? key;
     if (finalKey !== key) {
       obs.redirectedTo = finalKey;
       this.addEdge({ from: key, to: finalKey, label: "redirect", kind: "redirect" });
@@ -614,7 +621,7 @@ export class DiscoveryLeadAgent {
       }
       this.addDiscovered(
         finalKey,
-        page.url(),
+        browser.url,
         entry.depth,
         key,
         "redirect target",
@@ -640,9 +647,7 @@ export class DiscoveryLeadAgent {
 
     let extract: PageExtract | undefined;
     try {
-      extract = this.deps.redactor.redactValue(
-        await extractPage(page, this.policy.maxUniqueInteractiveElementsPerRoute),
-      );
+      extract = this.deps.redactor.redactValue(this.extractCurrent());
     } catch (error) {
       obs.error = this.r(`extraction failed: ${(error as Error).message}`);
     }
@@ -663,8 +668,7 @@ export class DiscoveryLeadAgent {
       await this.safeToggles(obs, extract, key);
       await this.searchAndFilters(obs, extract, entry.depth);
     }
-    obs.console = observers.console.slice(consoleStart, consoleStart + 50);
-    obs.network = observers.network.slice(networkStart, networkStart + 50);
+    await this.collectDiagnostics(obs);
     this.lifecycle?.recordObservation(
       `${key} ${extract?.title ?? ""} ${(extract?.headings ?? []).map((h) => h.text).join(" ")} links:${extract?.links.length ?? 0}`,
     );
@@ -779,55 +783,67 @@ export class DiscoveryLeadAgent {
     }
   }
 
+  private extractCurrent(max = this.policy.maxUniqueInteractiveElementsPerRoute): PageExtract {
+    const browser = this.browser as DiscoveryBrowser;
+    return extractFromSnapshot(browser.snapshotText, {
+      url: browser.url,
+      title: browser.title,
+      maxInteractive: max,
+    });
+  }
+
+  /** Console and failed-request evidence read through the gateway (redacted, bounded). */
+  private async collectDiagnostics(obs: RouteObservation): Promise<void> {
+    const browser = this.browser as DiscoveryBrowser;
+    const at = this.clock.iso();
+    try {
+      const all = await browser.console();
+      const fresh = all.slice(this.consoleSeen);
+      this.consoleSeen = all.length;
+      obs.console = fresh
+        .slice(0, 50)
+        .map((c) => ({ type: c.type, text: this.r(c.text, 300), url: obs.url, at }));
+    } catch {
+      /* diagnostics are best effort */
+    }
+    const net = this.routeNetwork;
+    obs.network = net
+      .filter((n) => n.status === undefined || n.status >= 400)
+      .slice(0, 50)
+      .map((n) => ({
+        url: this.r(n.url, 500),
+        method: n.method,
+        ...(n.status !== undefined ? { status: n.status } : { failure: "request failed" }),
+        resourceType: "unknown",
+        at,
+      }));
+  }
+
   private async capture(obs: RouteObservation, key: string): Promise<void> {
-    const page = this.page as Page;
+    const browser = this.browser as DiscoveryBrowser;
     const tag = padSequence(this.observations.length, 3);
+    try {
+      this.routeNetwork = await browser.network();
+    } catch {
+      this.routeNetwork = [];
+    }
     if (
       this.counters.screenshots < this.policy.maxScreenshots &&
       this.packet.request.browser.screenshot !== "off"
     ) {
-      const rel = `${RunLayout.discovery.lead.screenshotsDir}/route-${tag}.png`;
       try {
-        await page.screenshot({ path: this.deps.storage.resolve(rel), fullPage: false, timeout: 10_000 });
+        const file = await browser.screenshot(`route-${tag}.png`);
+        const rel = path.relative(this.deps.storage.root, file).split(path.sep).join("/");
         this.counters.screenshots++;
         obs.screenshot = rel;
         this.artifacts.add(rel);
         await this.ledger({ kind: "screenshot", route: key, status: "passed", evidence: rel });
-      } catch {
-        /* screenshot optional */
-      }
-    }
-    if (this.policy.runAccessibilityScan && !obs.requiresAuth) {
-      try {
-        obs.axe = await runAxe(page, { redactor: this.deps.redactor });
-        const rel = `${RunLayout.discovery.lead.a11yDir}/route-${tag}-axe.json`;
-        await this.deps.storage.writeJson(rel, obs.axe);
-        obs.axePath = rel;
-        this.artifacts.add(rel);
-        await this.ledger({
-          kind: "axe",
-          route: key,
-          status: "passed",
-          violations: obs.axe.violations.length,
-        });
       } catch (error) {
-        this.limitations.push(
-          `Accessibility scan failed on ${key}: ${this.r((error as Error).message, 150)}`,
-        );
+        if (error instanceof GatewayBlocked && error.message === "bot_protection_challenge") throw error;
       }
     }
-    const viewports = Object.entries(this.policy.viewports);
-    const primary = viewports[0];
-    for (const [name, size] of viewports) {
-      try {
-        if (name !== primary?.[0]) await page.setViewportSize(size);
-        const m = await measureOverflow(page);
-        obs.overflow.push({ viewport: name, ...m });
-      } catch {
-        /* measurement optional */
-      }
-    }
-    if (primary && viewports.length > 1) await page.setViewportSize(primary[1]).catch(() => undefined);
+    /* The MCP toolset exposes neither an axe engine nor viewport resizing to discovery, so these two
+       measurements are explicitly unavailable rather than reported as clean. */
   }
 
   private budgetLeft(): boolean {
@@ -836,10 +852,10 @@ export class DiscoveryLeadAgent {
 
   private async maybeDismissCookieBanner(obs: RouteObservation): Promise<void> {
     if (this.cookieBannerHandled || !this.policy.allowCookieBannerDismissal) return;
-    const page = this.page as Page;
+    const browser = this.browser as DiscoveryBrowser;
     let extract: PageExtract;
     try {
-      extract = await extractPage(page, this.policy.maxUniqueInteractiveElementsPerRoute);
+      extract = this.extractCurrent();
     } catch {
       return;
     }
@@ -855,7 +871,8 @@ export class DiscoveryLeadAgent {
       return;
     }
     try {
-      await page.locator(`[${CONTROL_ATTR}="${decline.idx}"]`).first().click({ timeout: 3000 });
+      if (!decline.ref) throw new Error("no ref");
+      await browser.click(decline.ref, decline.label);
       this.counters.safeInteractions++;
       obs.interactions.push({ kind: "cookie-banner", label: this.r(decline.label, 200), outcome: "ok" });
       await this.ledger({
@@ -869,87 +886,97 @@ export class DiscoveryLeadAgent {
         kind: "cookie-banner",
         label: this.r(decline.label, 100),
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof GatewayBlocked && error.message === "bot_protection_challenge") throw error;
       obs.interactions.push({ kind: "cookie-banner", label: this.r(decline.label, 200), outcome: "error" });
     }
   }
 
   private async safeToggles(obs: RouteObservation, extract: PageExtract, key: string): Promise<void> {
     if (!this.policy.allowNonPersistentTabsAndAccordions && !this.policy.allowReadOnlyPagination) return;
-    const page = this.page as Page;
+    const browser = this.browser as DiscoveryBrowser;
     let done = 0;
-    for (const c of extract.controls) {
+    /* Candidates are identified by role and label; the ref is re-resolved from a fresh snapshot for
+       every click so a stale ref can never be reused. */
+    const candidates = extract.controls.filter((c) => c.visible && !c.inCookieBanner && c.label);
+    for (const cand of candidates) {
       if (done >= MAX_TOGGLES_PER_ROUTE || !this.budgetLeft()) break;
-      if (!c.visible || c.inCookieBanner) continue;
-      const safety = classifyControl({
-        tag: c.tag,
-        role: c.role,
-        type: c.type,
-        label: c.label,
-        inForm: c.inForm,
-        ariaExpanded: c.ariaExpanded,
-        ariaControls: c.ariaControls,
-        ariaHasPopup: c.ariaHasPopup,
-        inPagination: c.inPagination,
-      });
+      const safetyOf = (c: PageExtract["controls"][number]) =>
+        classifyControl({
+          tag: c.tag,
+          role: c.role,
+          type: c.type,
+          label: c.label,
+          inForm: c.inForm,
+          ariaExpanded: c.ariaExpanded,
+          ariaControls: c.ariaControls,
+          ariaHasPopup: c.ariaHasPopup,
+          inPagination: c.inPagination,
+        });
+      const safety = safetyOf(cand);
       let kind: InteractionRecord["kind"];
       let locator: Locator | undefined;
       if (safety.kind === "safe-toggle" && this.policy.allowNonPersistentTabsAndAccordions) {
-        if (c.role === "tab") {
+        if (cand.role === "tab") {
           kind = "tab";
-          locator = c.label ? { role: "tab", name: c.label } : undefined;
-        } else if (c.tag === "summary") {
-          kind = "details";
-          locator = c.label ? { text: c.label } : undefined;
-        } else if (c.ariaHasPopup && c.ariaHasPopup !== "false") {
+          locator = { role: "tab", name: cand.label };
+        } else if (cand.ariaHasPopup && cand.ariaHasPopup !== "false") {
           kind = "menu";
-          locator = c.label ? { role: "button", name: c.label } : undefined;
+          locator = { role: "button", name: cand.label };
         } else {
           kind = "accordion";
-          locator = c.label ? { role: "button", name: c.label } : undefined;
+          locator = { role: "button", name: cand.label };
         }
       } else if (safety.kind === "safe-pagination" && this.policy.allowReadOnlyPagination) {
         kind = "pagination";
-        locator = c.label ? { role: "button", name: c.label } : undefined;
+        locator = { role: "button", name: cand.label };
       } else continue;
       const started = this.clock.now();
       try {
-        await page.locator(`[${CONTROL_ATTR}="${c.idx}"]`).first().click({ timeout: 3000 });
+        await browser.snapshot();
+        const fresh = this.extractCurrent().controls.find(
+          (c) => c.role === cand.role && c.label === cand.label && c.ref,
+        );
+        if (!fresh?.ref) continue;
+        /* Re-classify against the fresh snapshot before acting on it. */
+        if (safetyOf(fresh).kind === "restricted") continue;
+        await browser.click(fresh.ref, cand.label);
         this.counters.safeInteractions++;
         done++;
         let outcome: InteractionRecord["outcome"] = "ok";
-        const now = routeKey(page.url(), this.base);
+        const now = routeKey(browser.url, this.base);
         if (now !== key) {
-          // A "toggle" navigated: record the edge and return to the route (read-only GET).
+          /* A "toggle" navigated: record the edge and return to the route (read-only GET). */
           if (now)
             this.addEdge({
               from: key,
               to: now,
-              label: c.label,
+              label: cand.label,
               kind: kind === "pagination" ? "pagination" : "link",
             });
           this.counters.navigations++;
-          await page.goto(new URL(key, this.origin).toString(), { waitUntil: "load" }).catch(() => undefined);
+          await browser.goto(new URL(key, this.origin).toString()).catch(() => undefined);
           outcome = "navigated-back";
         }
         obs.interactions.push({
           kind,
-          label: this.r(c.label, 200),
+          label: this.r(cand.label, 200),
           outcome,
           ...(locator ? { locator } : {}),
         });
         await this.ledger({
           kind: `toggle:${kind}`,
           route: key,
-          label: c.label,
+          label: cand.label,
           status: "passed",
           durationMs: this.clock.now() - started,
         });
-        this.emit("discovery.interaction", { route: key, kind, label: this.r(c.label, 100) });
-      } catch {
+        this.emit("discovery.interaction", { route: key, kind, label: this.r(cand.label, 100) });
+      } catch (error) {
+        if (error instanceof GatewayBlocked && error.message === "bot_protection_challenge") throw error;
         obs.interactions.push({
           kind,
-          label: this.r(c.label, 200),
+          label: this.r(cand.label, 200),
           outcome: "error",
           ...(locator ? { locator } : {}),
         });
@@ -958,82 +985,75 @@ export class DiscoveryLeadAgent {
   }
 
   /**
-   * Read-only search and filters: a GET form whose fields are only search/text/select/checkbox/radio is
-   * exercised by navigating to the equivalent query URL (never by submitting the form). The search term is
-   * a word already visible on the page, so no data is invented.
+   * Read-only search: a search landmark is exercised by typing a word already visible on the page and
+   * submitting it. The in-server request guard permits only GET/HEAD, so a form that would write is
+   * blocked and recorded instead of sent. Snapshots do not expose form actions or field names, so the
+   * query parameter is inferred from the resulting URL.
    */
   private async searchAndFilters(obs: RouteObservation, extract: PageExtract, depth: number): Promise<void> {
     if (!this.policy.allowSearchAndFilters) return;
-    const page = this.page as Page;
+    const browser = this.browser as DiscoveryBrowser;
+    let moved = false;
     for (const f of extract.forms) {
       if (!this.budgetLeft() || this.counters.navigations >= this.policy.maxNavigations) break;
-      if (!isReadOnlyQueryForm(f, this.base, this.scope)) continue;
-      const text = f.fields.find((x) => x.type === "search" || x.type === "text");
-      const select = f.fields.find((x) => x.type === "select" && x.options.some((o) => o));
-      const kind: SearchExercise["kind"] = text ? "search" : "filter";
-      const params = new URLSearchParams();
-      let term = "";
-      let paramName = "";
-      if (text?.name) {
-        term = pickSearchTerm(extract);
-        if (!term) continue;
-        params.set(text.name, term);
-        paramName = text.name;
-      } else if (select?.name) {
-        term = select.options.find((o) => o) ?? "";
-        params.set(select.name, term);
-        paramName = select.name;
-      } else continue;
-      let target: URL;
-      try {
-        target = new URL(f.action, this.base);
-      } catch {
-        continue;
-      }
-      for (const [k, v] of params) target.searchParams.set(k, v);
-      const key = routeKey(target.toString(), this.base);
-      if (!key) continue;
+      if (!isReadOnlyQueryForm(f, this.base, this.scope) || !f.inputRef) continue;
+      const term = pickSearchTerm(extract);
+      if (!term) continue;
       const started = this.clock.now();
       try {
+        await browser.snapshot();
+        const input = this.extractCurrent().forms.find((x) => x.inSearchLandmark && x.index === f.index);
+        if (!input?.inputRef) continue;
         this.counters.navigations++;
         this.counters.safeInteractions++;
-        await page.goto(target.toString(), { waitUntil: "load" });
-        const after = await extractPage(page, 50).catch(() => undefined);
+        const beforeBlocked = this.blockedRequests.length;
+        await browser.typeAndSubmit(input.inputRef, f.fields[0]?.label || "search", term);
+        await browser.newBlocks();
+        if (this.blockedRequests.length > beforeBlocked) {
+          this.limitations.push(`Search on ${obs.path} attempted a blocked request; recorded, not sent.`);
+          continue;
+        }
+        const target = new URL(browser.url);
+        const key = routeKey(target.toString(), this.base);
+        if (!key || key === obs.path) continue;
+        moved = true;
+        const paramName = [...target.searchParams.entries()].find(([, v]) => v === term)?.[0] ?? "";
+        const after = this.extractCurrent(50);
         const resultsObserved =
-          !!after &&
-          (after.links.length > 0 || after.tables.some((t) => t.rowCount > 0) || after.cards.length > 0);
+          after.links.length > 0 || after.tables.some((t) => t.rowCount > 0) || after.cards.length > 0;
         obs.searchExercises.push({
-          kind,
+          kind: "search",
           formIndex: f.index,
           paramName,
           term: this.r(term, 80),
           path: key,
           resultsObserved,
         });
-        this.addEdge({ from: obs.path, to: key, label: `${kind}: ${term}`, kind: "search" });
-        this.addDiscovered(key, target.toString(), depth + 1, obs.path, `${kind} results`, false);
+        this.addEdge({ from: obs.path, to: key, label: `search: ${term}`, kind: "search" });
+        this.addDiscovered(key, target.toString(), depth + 1, obs.path, "search results", false);
         const ref = this.discovered.get(key);
         if (ref) ref.visited = true;
         await this.ledger({
-          kind: `read-only-${kind}`,
+          kind: "read-only-search",
           route: obs.path,
           target: key,
           status: "passed",
           durationMs: this.clock.now() - started,
         });
-        this.emit("discovery.interaction", { route: obs.path, kind, target: key });
+        this.emit("discovery.interaction", { route: obs.path, kind: "search", target: key });
+        this.counters.navigations++;
+        await browser.goto(new URL(obs.path, this.origin).toString()).catch(() => undefined);
+        moved = false;
       } catch (error) {
+        if (error instanceof GatewayBlocked && error.message === "bot_protection_challenge") throw error;
         this.limitations.push(
-          `Read-only ${kind} on ${obs.path} failed: ${this.r((error as Error).message, 120)}`,
+          `Read-only search on ${obs.path} failed: ${this.r((error as Error).message, 120)}`,
         );
       }
     }
-    // Return to the route so later captures describe it (only when a search moved away).
-    if (obs.searchExercises.length) {
+    if (moved) {
       this.counters.navigations++;
-      await page
-        .goto(new URL(obs.path, this.origin).toString(), { waitUntil: "load" })
-        .catch(() => undefined);
+      await browser.goto(new URL(obs.path, this.origin).toString()).catch(() => undefined);
     }
   }
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentTelemetrySchema, VerdictSchema } from "./agent.js";
 import { AgentRoleSchema, IsoDateSchema, Sha256Schema, ViewportSizeSchema } from "./common.js";
 import { ContextPolicySchema, ModelRefSchema, SafetyPolicySchema } from "./plan.js";
 import {
@@ -7,6 +8,7 @@ import {
   HandoffSummarySchema,
   RunStateSchema,
   StepResultSummarySchema,
+  VerificationResultSchema,
   WorkPacketStateSchema,
 } from "./runtime.js";
 
@@ -16,6 +18,8 @@ export type PacketOutcome = z.infer<typeof PacketOutcomeSchema>;
 export const PacketReportSchema = z
   .object({
     packetId: z.string(),
+    telemetry: AgentTelemetrySchema.optional(),
+    verdict: VerdictSchema.optional(),
     scenarioId: z.string(),
     scenarioTitle: z.string(),
     role: AgentRoleSchema,
@@ -87,6 +91,10 @@ export const RunReportSchema = z
         deterministicOperations: z.number().int(),
         llmAssistedOperations: z.number().int(),
         totalActions: z.number().int(),
+        llmCost: z.number().nullable().optional(),
+        usageExact: z.boolean().optional(),
+        toolCalls: z.number().int().optional(),
+        loopGuardTrips: z.number().int().optional(),
         llmCalls: z.number().int(),
         llmTokens: z.number().int(),
         contextWarnings: z.number().int(),
@@ -100,6 +108,16 @@ export const RunReportSchema = z
       })
       .strict(),
     packets: z.array(PacketReportSchema),
+    verification: z
+      .object({
+        reserved: z.number().int(),
+        run: z.number().int(),
+        skipped: z.number().int(),
+        packets: z.array(PacketReportSchema),
+        results: z.array(VerificationResultSchema),
+      })
+      .strict()
+      .optional(),
     findings: z.array(FindingSchema),
     limitations: z.array(z.string()),
   })

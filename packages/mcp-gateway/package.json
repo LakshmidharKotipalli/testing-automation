@@ -1,9 +1,8 @@
 {
-  "name": "@browserswarm/browser-tools",
+  "name": "@browserswarm/mcp-gateway",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Typed, allowlisted Playwright actions: launcher, locator resolution, domain guard, observers, step executor",
   "exports": {
     ".": {
       "source": "./src/index.ts",
@@ -15,11 +14,15 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.25.2",
+    "@browserswarm/mcp-browser": "workspace:*",
     "@browserswarm/core": "workspace:*",
-    "@browserswarm/policy-engine": "workspace:*",
     "@browserswarm/shared": "workspace:*",
-    "@browserswarm/storage": "workspace:*",
-    "axe-core": "^4.10.2",
-    "playwright": "1.56.1"
+    "@browserswarm/policy-engine": "workspace:*",
+    "ajv": "^8.17.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@browserswarm/execution-planner": "workspace:*"
   }
 }

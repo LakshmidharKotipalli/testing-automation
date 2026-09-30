@@ -24,6 +24,7 @@ export type LLMStreamEvent =
   { type: "text"; text: string } | { type: "usage"; usage: TokenUsage } | { type: "done" };
 
 export interface LLMClient {
+  chat?(input: ChatInput): Promise<ChatOutput>;
   generate(input: LLMGenerateInput): Promise<LLMGenerateOutput>;
   stream?(input: LLMGenerateInput): AsyncIterable<LLMStreamEvent>;
 }
@@ -36,4 +37,38 @@ export class LLMClientError extends Error {
     super(message);
     this.name = "LLMClientError";
   }
+}
+
+export interface ChatTool {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+export interface ChatToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+export interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  toolCalls?: ChatToolCall[];
+  toolCallId?: string;
+}
+export interface ChatInput {
+  messages: ChatMessage[];
+  tools: ChatTool[];
+  model: ModelRef;
+  maxTokens: number;
+  signal?: AbortSignal;
+}
+export interface ChatOutput {
+  content: string;
+  toolCalls: ChatToolCall[];
+  usage: TokenUsage;
+  cost: number | null;
+  stopReason: string;
+}
+export interface ChatClient {
+  chat(input: ChatInput): Promise<ChatOutput>;
 }

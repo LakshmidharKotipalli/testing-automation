@@ -94,6 +94,15 @@ export function renderMarkdownReport(r: RunReport): string {
     );
     if (p.rotationReasons.length) L.push(`- Rotation reasons: ${p.rotationReasons.map(esc).join("; ")}`);
     L.push(`- Resume outcome: ${p.resumeOutcome}`);
+    if (p.telemetry)
+      L.push(
+        `- Model calls/tokens: ${p.telemetry.llmCalls}/${p.telemetry.tokens}; cost: ${p.telemetry.cost ?? "unknown"}; exact usage: ${p.telemetry.usageExact}; tools: ${p.telemetry.toolCalls}; loop trips: ${p.telemetry.loopGuardTrips}`,
+      );
+    if (p.verdict)
+      for (const o of p.verdict.outcomes)
+        L.push(
+          `- Outcome: ${esc(o.expectedOutcome)}; met: ${o.met}; evidence: ${o.evidence.map(esc).join(", ")}`,
+        );
     L.push(`- Artifacts: \`${p.artifactDir}/\``);
     L.push("", "| # | Action | Status | Summary |", "| --- | --- | --- | --- |");
     for (const s of p.stepResults)
@@ -116,6 +125,15 @@ export function renderMarkdownReport(r: RunReport): string {
     }
   }
 
+  if (r.verification) {
+    L.push("## Verification", "");
+    L.push(
+      `- Reserved verifier packets: ${r.verification.reserved}; run: ${r.verification.run}; not needed or not run: ${r.verification.skipped}`,
+    );
+    for (const v of r.verification.results)
+      L.push(`- Finding \`${v.findingId}\` -> **${v.status}** by \`${v.verifierPacketId}\`: ${esc(v.notes)}`);
+    L.push("");
+  }
   L.push("## Findings", "");
   if (!r.findings.length) L.push("No findings.", "");
   for (const f of r.findings) {

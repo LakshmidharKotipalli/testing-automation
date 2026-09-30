@@ -2,7 +2,7 @@ import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AutonomousTestPlanGenerator } from "@browserswarm/autonomous-planner";
-import { CountingLauncher } from "@browserswarm/browser-tools";
+import { McpBrowserSession, type SessionFactory } from "@browserswarm/mcp-browser";
 import {
   BrowserConfigSchema,
   computeDiscoveryCheckpointHash,
@@ -30,6 +30,15 @@ beforeAll(async () => {
 afterAll(async () => {
   await server?.close();
 });
+
+function countingSessions() {
+  let sessions = 0;
+  const factory: SessionFactory = (options) => {
+    sessions++;
+    return new McpBrowserSession(options);
+  };
+  return { factory, count: () => sessions };
+}
 
 function packetFor(policy: Record<string, unknown> = {}, context: Record<string, unknown> = {}) {
   return createDiscoveryPacket(
@@ -61,7 +70,7 @@ describe("Discovery Lead Agent against the fixture site", () => {
       operator: "vitest",
       mode: "noninteractive",
     });
-    const launcher = new CountingLauncher();
+    const sessions = countingSessions();
     const before = server.requestLog().length;
     const { result, profile, files } = await runDiscoveryPhase({
       packet,
@@ -69,13 +78,12 @@ describe("Discovery Lead Agent against the fixture site", () => {
       storage,
       events,
       redactor: createRedactor(),
-      launcher,
+      sessionFactory: sessions.factory,
     });
     const log = server.requestLog().slice(before);
 
     // Exactly one browser and one context: only the Discovery Lead Agent ran.
-    expect(launcher.launches).toBe(1);
-    expect(launcher.contexts).toBe(1);
+    expect(sessions.count()).toBe(1);
     // Read-only: no request other than GET/HEAD reached the server, and no restricted endpoint was hit.
     expect(log.filter((r) => r.method !== "GET" && r.method !== "HEAD")).toEqual([]);
     expect(
@@ -120,7 +128,8 @@ describe("Discovery Lead Agent against the fixture site", () => {
 
     // Quality surface picked up the seeded problems.
     expect(profile.qualitySurface.console.errorCount).toBeGreaterThan(0);
-    expect(profile.qualitySurface.accessibility.routesScanned).toBeGreaterThan(0);
+    expect(profile.limitations.join(" ")).toMatch(/axe-core[^.]*unavailable/);
+    expect(profile.qualitySurface.accessibility.routesScanned).toBe(0);
     expect(
       profile.qualitySurface.brokenMedia.length + profile.qualitySurface.network.httpErrorCount,
     ).toBeGreaterThan(0);
@@ -149,7 +158,14 @@ describe("Discovery Lead Agent against the fixture site", () => {
     ])
       expect(await storage.exists(f)).toBe(true);
     expect(files.length).toBeGreaterThanOrEqual(14);
-    expect((await readdir(storage.resolve(D.lead.screenshotsDir))).length).toBeGreaterThan(0);
+    const shots = result.observations.map((o) => o.screenshot).filter((x): x is string => !!x);
+    expect(shots.length).toBeGreaterThan(0);
+    for (const rel of shots) expect(await storage.exists(rel)).toBe(true);
+    expect(
+      (await readdir(storage.resolve(`${D.lead.dir}/mcp/discovery-lead-i01`))).some((f) =>
+        f.endsWith(".png"),
+      ),
+    ).toBe(true);
 
     // The generated plan only uses discovered routes and never plans state changes.
     const { testPlan, executionPlan } = new AutonomousTestPlanGenerator().generate({ profile });
@@ -175,15 +191,20 @@ describe("Discovery Lead Agent against the fixture site", () => {
       { maxRoutesVisited: 6, runAccessibilityScan: false, maxScreenshots: 0, allowSearchAndFilters: false },
       { maxActionsPerAgentInstance: 3, maxHandoffsPerWorkPacket: 5 },
     );
-    const launcher = new CountingLauncher();
-    const agent = new DiscoveryLeadAgent(packet, { storage, events, redactor: createRedactor(), launcher });
+    const sessions = countingSessions();
+    const agent = new DiscoveryLeadAgent(packet, {
+      storage,
+      events,
+      redactor: createRedactor(),
+      sessionFactory: sessions.factory,
+    });
     const result = await agent.run(
       recordDiscoveryAuthorization({ packet, operator: "vitest", mode: "noninteractive" }),
     );
     expect(result.handoffs.length).toBeGreaterThan(0);
     expect(result.stats.agentInstances).toBe(result.handoffs.length + 1);
     // One context per instance, never more than one at a time.
-    expect(launcher.contexts).toBe(result.stats.agentInstances);
+    expect(sessions.count()).toBe(result.stats.agentInstances);
     const handoff = DiscoveryHandoffSchema.parse(await storage.readJson(result.handoffs[0] as string));
     expect(computeDiscoveryHandoffHash(handoff)).toBe(handoff.integrityHash);
     const cp = DiscoveryCheckpointSchema.parse(
@@ -199,11 +220,16 @@ describe("Discovery Lead Agent against the fixture site", () => {
     const { storage, events } = await setup();
     const packet = packetFor();
     const other = packetFor({ maxRoutesVisited: 2 });
-    const launcher = new CountingLauncher();
-    const agent = new DiscoveryLeadAgent(packet, { storage, events, redactor: createRedactor(), launcher });
+    const sessions = countingSessions();
+    const agent = new DiscoveryLeadAgent(packet, {
+      storage,
+      events,
+      redactor: createRedactor(),
+      sessionFactory: sessions.factory,
+    });
     await expect(
       agent.run(recordDiscoveryAuthorization({ packet: other, operator: "x", mode: "noninteractive" })),
     ).rejects.toThrow(/authorization/);
-    expect(launcher.launches).toBe(0);
+    expect(sessions.count()).toBe(0);
   });
 });

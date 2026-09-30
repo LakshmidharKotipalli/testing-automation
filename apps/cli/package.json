@@ -20,10 +20,10 @@
   "dependencies": {
     "@browserswarm/approval": "workspace:*",
     "@browserswarm/autonomous-planner": "workspace:*",
-    "@browserswarm/browser-tools": "workspace:*",
     "@browserswarm/core": "workspace:*",
     "@browserswarm/discovery": "workspace:*",
     "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/mcp-browser": "workspace:*",
     "@browserswarm/opencode-adapter": "workspace:*",
     "@browserswarm/orchestrator": "workspace:*",
     "@browserswarm/plan-compiler": "workspace:*",

@@ -40,11 +40,26 @@ export function renderExecutionPlanReview(
   section("Mode", [ep.mode]);
   section("Scenarios", [String(s.scenarioCount)]);
   section("Work packets", [String(s.workPacketCount)]);
+  if (ep.workPackets.some((p) => p.replay?.enabled))
+    section("Guarded replay (opt-in)", [
+      "Successful, non-risky agentic sequences may be replayed through the same gateway checks; the model still reports the verdict from fresh evidence.",
+    ]);
+  if (ep.verifierPackets?.length)
+    section("Conditional verifier packets (approved now, run only if a finding meets the threshold)", [
+      `${ep.verifierPackets.length} reserved; trigger: severity >= ${ep.reporting.verifySeverityAtOrAbove}`,
+      ...ep.verifierPackets.map(
+        (v) =>
+          `- ${v.packetId} verifies ${v.verifierOf}; model ${v.model ? `${v.model.provider}:${v.model.model}` : "none (deterministic re-run)"}; budget ${v.actionBudget} actions, ${v.timeoutMs}ms; fresh browser, replay disabled`,
+      ),
+    ]);
   section("Maximum concurrent work packets", [String(s.maxConcurrentWorkPackets)]);
   section("Maximum concurrent browser contexts", [String(s.maxConcurrentBrowserContexts)]);
   section(
     "Browser / viewport matrix",
-    s.browserMatrix.map((b) => `- ${b.engine} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`),
+    s.browserMatrix.map(
+      (b) =>
+        `- ${b.engine}${b.project ? ` [${b.project}]` : ""} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`,
+    ),
   );
 
   const roleLabel = (r: string) => r.charAt(0).toUpperCase() + r.slice(1);
@@ -118,6 +133,7 @@ export function renderExecutionPlanReview(
     line(`  [${id}] ${first.scenarioTitle} (priority ${first.priority})`);
     line(`    Objective: ${first.objective}`);
     line(`    Expected outcome: ${first.expectedOutcome}`);
+    for (const instruction of first.instructions ?? []) line(`    Instruction: ${instruction}`);
     if (options.includeSteps !== false) {
       first.steps.forEach((step, i) => line(`    ${String(i).padStart(2, " ")}. ${describeStep(step)}`));
     }
@@ -131,6 +147,10 @@ export function renderExecutionPlanReview(
         `mode=${p.mode} model=${p.model ? p.model.model : "none"} steps=${p.steps.length} ` +
         `actionBudget=${p.actionBudget} llmCalls=${p.llmCallBudget}${p.requiresExplicitRiskApproval ? " RISK" : ""}`,
     );
+    if (p.agent)
+      line(
+        `    provider=${p.model?.provider ?? "none"} tools=${p.agent.allowedTools.join(",")} maxToolCalls=${p.agent.maxToolCalls} maxLlmCalls=${p.agent.maxLlmCalls} maxTokens=${p.agent.maxTokens}`,
+      );
   }
   line();
 

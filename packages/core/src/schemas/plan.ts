@@ -10,6 +10,7 @@ import {
   SlugIdSchema,
   ViewportSizeSchema,
 } from "./common.js";
+import { AgentPolicySchema } from "./agent.js";
 import { TestStepSchema } from "./steps.js";
 
 export const DomainSchema = z
@@ -34,6 +35,8 @@ export const BrowserEngineSchema = z.enum(["chromium", "firefox", "webkit"]);
 export const BrowserConfigSchema = z
   .object({
     engine: BrowserEngineSchema.default("chromium"),
+    channel: z.enum(["chromium", "chrome"]).optional(),
+    persistentProfile: z.boolean().optional(),
     headless: z.boolean().default(true),
     locale: z.string().default("en-US"),
     timezoneId: z.string().default("UTC"),
@@ -44,6 +47,36 @@ export const BrowserConfigSchema = z
   })
   .strict();
 export type BrowserConfig = z.infer<typeof BrowserConfigSchema>;
+
+/**
+ * A named Chrome/Chromium project. Projects expand the matrix (scenario x role x viewport x project).
+ * Firefox and WebKit are deliberately not representable: the schema is strict and has no engine field.
+ */
+export const BrowserProjectSchema = z
+  .object({
+    name: SlugIdSchema,
+    channel: z.enum(["chromium", "chrome"]),
+  })
+  .strict();
+export type BrowserProject = z.infer<typeof BrowserProjectSchema>;
+
+/**
+ * Conditional verification. When enabled, one verifier packet is reserved per primary packet at preview and
+ * approved with the plan. It runs only if its source packet produced findings at or above
+ * reporting.verifySeverityAtOrAbove, in a fresh browser, with replay disabled, and is never itself verified.
+ */
+export const VerificationConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    timeoutMs: z.number().int().min(1000).optional(),
+    maxActions: z.number().int().min(1).max(10_000).optional(),
+  })
+  .strict();
+export type VerificationConfig = z.infer<typeof VerificationConfigSchema>;
+
+/** Opt-in guarded replay of previously successful, non-risky agentic sequences. Off unless enabled. */
+export const ReplayConfigSchema = z.object({ enabled: z.boolean().default(false) }).strict();
+export type ReplayConfig = z.infer<typeof ReplayConfigSchema>;
 
 export const ExecutionConfigSchema = z
   .object({
@@ -58,8 +91,9 @@ export type ExecutionConfig = z.infer<typeof ExecutionConfigSchema>;
 
 export const ModelRefSchema = z
   .object({
-    provider: z.enum(["opencode-cli", "mock"]),
+    provider: z.enum(["opencode-cli", "mock", "openrouter", "opencode-agent"]),
     model: z.string().min(1),
+    baseUrl: z.string().url().optional(),
     command: z.string().min(1).optional(),
     argsTemplate: z.array(z.string()).optional(),
     timeoutMs: z.number().int().min(1000).max(600_000).optional(),
@@ -197,7 +231,8 @@ export const ScenarioSchema = z
     viewports: z.array(z.string().min(1)).min(1),
     expectedOutcome: z.string().min(1).max(1000),
     tags: z.array(z.string()).optional(),
-    steps: z.array(TestStepSchema).min(1),
+    steps: z.array(TestStepSchema).default([]),
+    instructions: z.array(z.string().min(1).max(2000)).optional(),
     // Planning metadata. All optional (no defaults) so plans without it keep their exact plan hash.
     source: ScenarioSourceSchema.optional(),
     safetyClass: ScenarioSafetyClassSchema.optional(),
@@ -301,9 +336,14 @@ export const TestPlanSchema = z
     id: SlugIdSchema,
     name: z.string().min(1).max(200),
     description: z.string().max(2000).optional(),
-    mode: z.enum(["scripted", "llm-assisted"]).default("scripted"),
+    mode: z.enum(["scripted", "llm-assisted", "agentic"]).default("scripted"),
     target: TargetConfigSchema,
+    agent: AgentPolicySchema.optional(),
     browser: BrowserConfigSchema.default({}),
+    /** Optional named browser projects. Absent means one implicit project (the `browser` block). */
+    browserProjects: z.array(BrowserProjectSchema).min(1).max(8).optional(),
+    verification: VerificationConfigSchema.optional(),
+    replay: ReplayConfigSchema.optional(),
     execution: ExecutionConfigSchema.default({}),
     models: ModelAssignmentSchema.default({}),
     llm: LlmPolicySchema.default({}),

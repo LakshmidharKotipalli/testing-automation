@@ -17,10 +17,44 @@ export function validatePlan(plan: TestPlan): ValidationReport {
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  if (plan.browser.engine !== "chromium")
+    errors.push("MCP execution supports Chrome and Chromium only; Firefox and WebKit are not supported");
+  if (plan.browserProjects) {
+    const names = new Set<string>();
+    for (const p of plan.browserProjects) {
+      if (names.has(p.name)) errors.push(`duplicate browser project: ${p.name}`);
+      names.add(p.name);
+    }
+  }
+  if (plan.verification?.enabled && plan.mode === "agentic") {
+    const model = plan.models.overrides.verifier ?? plan.models.default;
+    if (!model || !["openrouter", "opencode-agent", "mock"].includes(model.provider))
+      errors.push(
+        "verification in agentic mode requires an openrouter, opencode-agent or mock verifier model",
+      );
+  }
+  if (plan.replay?.enabled && plan.mode !== "agentic") errors.push("replay applies to agentic mode only");
+  if (plan.scenarios.some((s) => s.roles.includes("verifier")))
+    errors.push(
+      'the "verifier" role is reserved for reserved verifier packets and cannot be a scenario role',
+    );
+  if (plan.mode === "agentic" && plan.llm.strategy === "fallback-only")
+    errors.push("agentic mode requires guided LLM policy");
   const ids = new Set<string>();
   for (const scenario of plan.scenarios) {
     if (ids.has(scenario.id)) errors.push(`duplicate scenario id: ${scenario.id}`);
     ids.add(scenario.id);
+    if (plan.mode !== "agentic" && scenario.steps.length === 0)
+      errors.push(`scenario ${scenario.id}: scripted mode requires steps`);
+    if (plan.mode === "agentic") {
+      for (const role of scenario.roles) {
+        const model = plan.models.overrides[role] ?? plan.models.default;
+        if (!model || !["openrouter", "opencode-agent", "mock"].includes(model.provider))
+          errors.push(
+            `scenario ${scenario.id}: agentic execution requires openrouter, opencode-agent or mock model for ${role}`,
+          );
+      }
+    }
     for (const vp of scenario.viewports) {
       if (!plan.viewports[vp]) errors.push(`scenario ${scenario.id}: unknown viewport "${vp}"`);
     }

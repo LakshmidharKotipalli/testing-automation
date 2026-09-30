@@ -8,13 +8,16 @@ import {
 } from "./common.js";
 import {
   BrowserConfigSchema,
+  BrowserProjectSchema,
   ContextPolicySchema,
+  ReplayConfigSchema,
   LlmPolicySchema,
   ModelRefSchema,
   ReportingConfigSchema,
   SafetyPolicySchema,
   TestDataSchema,
 } from "./plan.js";
+import { AgentPolicySchema } from "./agent.js";
 import { TestStepSchema } from "./steps.js";
 
 export const RiskCategorySchema = z.enum([
@@ -31,6 +34,8 @@ export const RiskCategorySchema = z.enum([
   "data_modification",
   "external_navigation",
   "authentication",
+  "tool_evaluate",
+  "tool_admin",
   "irreversible",
 ]);
 export type RiskCategory = z.infer<typeof RiskCategorySchema>;
@@ -47,7 +52,7 @@ export const RiskFlagSchema = z
   .strict();
 export type RiskFlag = z.infer<typeof RiskFlagSchema>;
 
-export const PacketModeSchema = z.enum(["deterministic", "llm-capable"]);
+export const PacketModeSchema = z.enum(["deterministic", "llm-capable", "agentic"]);
 
 export const WorkPacketSchema = z
   .object({
@@ -63,11 +68,20 @@ export const WorkPacketSchema = z
     viewportName: z.string(),
     viewport: ViewportSizeSchema,
     browser: BrowserConfigSchema,
+    /** Present only when the plan declares browser projects. */
+    projectName: z.string().optional(),
+    /** Set only on reserved verifier packets: the primary packet this one may verify. */
+    verifierOf: z.string().optional(),
+    /** Present only when the plan opts into guarded replay. Never present on verifier packets. */
+    replay: ReplayConfigSchema.optional(),
     targetUrl: z.string().url(),
     allowedDomains: z.array(z.string()).min(1),
     allowSubdomains: z.boolean(),
     /** Ordered steps exactly as approved. Test-data templates stay unresolved so packets never hold secrets. */
-    steps: z.array(TestStepSchema).min(1),
+    steps: z.array(TestStepSchema),
+    instructions: z.array(z.string()).optional(),
+    agent: AgentPolicySchema.optional(),
+    runtimeVersion: z.literal("mcp-v1").optional(),
     expectedOutcome: z.string(),
     mode: PacketModeSchema,
     model: ModelRefSchema.nullable(),
@@ -92,6 +106,7 @@ export const ExecutionPlanSummarySchema = z
   .object({
     scenarioCount: z.number().int(),
     workPacketCount: z.number().int(),
+    verifierPacketCount: z.number().int().optional(),
     deterministicPackets: z.number().int(),
     llmCapablePackets: z.number().int(),
     maxConcurrentWorkPackets: z.number().int(),
@@ -105,7 +120,14 @@ export const ExecutionPlanSummarySchema = z
     estimatedRuntimeMs: z.object({ min: z.number().int(), max: z.number().int() }).strict(),
     testDataCategories: z.array(z.string()),
     browserMatrix: z.array(
-      z.object({ engine: z.string(), viewportName: z.string(), viewport: ViewportSizeSchema }).strict(),
+      z
+        .object({
+          engine: z.string(),
+          project: z.string().optional(),
+          viewportName: z.string(),
+          viewport: ViewportSizeSchema,
+        })
+        .strict(),
     ),
   })
   .strict();
@@ -120,7 +142,7 @@ export const ExecutionPlanSchema = z
     planId: z.string(),
     planName: z.string(),
     planHash: Sha256Schema,
-    mode: z.enum(["scripted", "llm-assisted"]),
+    mode: z.enum(["scripted", "llm-assisted", "agentic"]),
     target: z
       .object({
         url: z.string().url(),
@@ -141,10 +163,13 @@ export const ExecutionPlanSchema = z
     contextLifecycle: ContextPolicySchema,
     safety: SafetyPolicySchema,
     browser: BrowserConfigSchema,
+    browserProjects: z.array(BrowserProjectSchema).optional(),
     reporting: ReportingConfigSchema,
     /** Hash-bound test data (literals or env references). Values are resolved only at run time. */
     testData: TestDataSchema,
     workPackets: z.array(WorkPacketSchema).min(1),
+    /** Reserved conditional verifier packets (at most one per primary packet). Absent when verification is off. */
+    verifierPackets: z.array(WorkPacketSchema).optional(),
     summary: ExecutionPlanSummarySchema,
     riskFlags: z.array(RiskFlagSchema),
     riskPlanHash: Sha256Schema.nullable(),

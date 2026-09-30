@@ -5,21 +5,27 @@ import {
   type AgentRunResult,
   type StepStatusResult,
 } from "@browserswarm/agent-runtime";
+import path from "node:path";
+import { readdir } from "node:fs/promises";
+import { McpBrowserSession, type BrowserSession, type SessionFactory } from "@browserswarm/mcp-browser";
+import { GuardedBrowserSession, executeScriptedStep, GatewayBlocked } from "@browserswarm/mcp-gateway";
 import {
-  captureFailureEvidence,
-  executeStep,
-  installDomainGuard,
-  PageObservers,
-  type BlockedRequest,
-  type BrowserHandle,
-  type StepExecutionContext,
-} from "@browserswarm/browser-tools";
+  LlmAgent,
+  LoopGuard,
+  OpenCodeAgentDriver,
+  replayEligible,
+  replayFingerprint,
+  replaySequence,
+} from "@browserswarm/llm-agent";
+import type { ReplayCache } from "@browserswarm/llm-agent";
+import { OpenRouterClient, type ChatClient } from "@browserswarm/opencode-adapter";
 import {
   BrowserSwarmError,
   describeStep,
   handoffStateMachine,
   TrackedState,
   workPacketStateMachine,
+  type AgentTelemetry,
   type AgentCheckpoint,
   type AgentEventType,
   type AgentInstance,
@@ -49,19 +55,19 @@ import {
 import {
   checkAction,
   checkHandoff,
-  checkUrl,
   classifyStep,
   resolveTemplate,
   type ResolvedTestData,
 } from "@browserswarm/policy-engine";
 import { canonicalize, newId, truncate, type Clock, type Redactor } from "@browserswarm/shared";
 import { packetRelative, RunLayout, type EventStore, type StorageAdapter } from "@browserswarm/storage";
-import type { BrowserContext, Page } from "playwright";
 
 export interface PacketRunnerDeps {
   storage: StorageAdapter;
   events: EventStore;
-  browser: BrowserHandle;
+  sessionFactory?: SessionFactory;
+  modelClient?: ChatClient;
+  env?: NodeJS.ProcessEnv;
   clock: Clock;
   approvedExecutionPlanHash: string;
   riskApproved: boolean;
@@ -69,6 +75,10 @@ export interface PacketRunnerDeps {
   redactor: Redactor;
   signal: AbortSignal;
   verifySeverityAtOrAbove: Severity;
+  /** Untrusted claims from the source packet, given to a verifier as data (never as instructions). */
+  verificationClaims?: unknown;
+  /** Present only when a replay cache directory is configured; still requires packet.replay.enabled. */
+  replayCache?: ReplayCache;
   /** Milestone 3 plugs in automatic replacement. Without it a rotation blocks the packet after the handoff. */
   replacementFactory?: ReplacementAgentFactory;
 }
@@ -98,12 +108,21 @@ export class PacketRunner {
   private readonly handoffs: HandoffSummary[] = [];
   private readonly rotationReasons: string[] = [];
   private readonly manifest: ArtifactManifest;
-  private readonly blockedRequests: BlockedRequest[] = [];
+
   private readonly confirmedFacts: string[] = [];
-  private context?: BrowserContext;
-  private page?: Page;
-  private observers?: PageObservers;
-  private agent?: ScriptedAgent;
+  private session?: BrowserSession;
+  private gateway?: GuardedBrowserSession;
+  private agent?: ScriptedAgent | LlmAgent | OpenCodeAgentDriver;
+  private readonly telemetry: AgentTelemetry = {
+    llmCalls: 0,
+    tokens: 0,
+    usageExact: true,
+    cost: 0,
+    toolCalls: 0,
+    loopGuardTrips: 0,
+  };
+  private readonly loop: LoopGuard;
+  private readonly controller = new AbortController();
   private actionCount = 0;
   private checkpointSeq = 0;
   private handoffSeq = 0;
@@ -116,12 +135,14 @@ export class PacketRunner {
   private resumeOutcome = "not_required";
   private blockedByHandoffLimit = false;
   private blockedByCheckpointFailure = false;
+  private replayFingerprint?: string;
 
   constructor(
     private readonly packet: WorkPacket,
     private readonly deps: PacketRunnerDeps,
     initialState: WorkPacketState = "PENDING",
   ) {
+    this.loop = new LoopGuard(packet.agent?.loopGuard.repetitions, packet.agent?.loopGuard.window);
     this.layout = RunLayout.packet(packet.packetId);
     this.manifest = { runId: packet.runId, packetId: packet.packetId, entries: [] };
     this.state = new TrackedState(workPacketStateMachine, initialState, undefined, () => deps.clock.iso());
@@ -152,6 +173,7 @@ export class PacketRunner {
   }
 
   private track(path: string, type: ArtifactManifest["entries"][number]["type"]): void {
+    if (this.manifest.entries.some((e) => e.path === packetRelative(path, this.packet.packetId))) return;
     this.manifest.entries.push({
       path: packetRelative(path, this.packet.packetId),
       type,
@@ -174,6 +196,10 @@ export class PacketRunner {
     await storage.writeJson(this.layout.workPacket, this.packet);
     this.track(this.layout.workPacket, "work-packet");
 
+    const abort = () => this.controller.abort(this.deps.signal.reason);
+    this.deps.signal.addEventListener("abort", abort, { once: true });
+    if (this.deps.signal.aborted) abort();
+    const timeout = setTimeout(() => this.controller.abort("packet_deadline"), this.packet.timeoutMs);
     let result: AgentRunResult | undefined;
     try {
       if (this.deps.signal.aborted) {
@@ -185,15 +211,71 @@ export class PacketRunner {
       this.emit("packet.started", { role: this.packet.role, viewport: this.packet.viewportName });
       await this.openContext();
       const instance = this.newInstance();
-      this.agent = new ScriptedAgent(instance, this.packet, this.deps.clock);
+      const replayHandoff = await this.tryReplay(instance);
+      this.agent = this.makeAgent(instance, replayHandoff);
       result = await this.agent.run(this.host(), 0);
       await this.handleResult(result);
     } catch (error) {
       await this.handleCrash(error);
     } finally {
+      clearTimeout(timeout);
+      this.deps.signal.removeEventListener("abort", abort);
       await this.closeContext();
     }
     return this.finish();
+  }
+
+  /**
+   * Opt-in guarded replay. Never for verifiers or non-agentic packets. Every replayed call goes through the
+   * gateway; a mismatch hands control to the model, a policy violation throws and ends the packet.
+   */
+  private async tryReplay(agent: AgentInstanceHandle): Promise<unknown> {
+    const cache = this.deps.replayCache;
+    if (
+      !cache ||
+      !this.session ||
+      !this.gateway ||
+      !this.packet.replay?.enabled ||
+      this.packet.role === "verifier" ||
+      this.packet.mode !== "agentic" ||
+      this.packet.model?.provider === "opencode-agent"
+    )
+      return undefined;
+    this.replayFingerprint = replayFingerprint(
+      this.packet,
+      this.session.tools,
+      Object.keys(this.deps.testData.values),
+    );
+    const entry = await cache.get(this.replayFingerprint);
+    if (!entry) return undefined;
+    this.emit("replay.hit", { calls: entry.calls.length }, agent.id);
+    const outcome = await replaySequence(this.gateway, entry);
+    this.emit(
+      outcome.status === "complete" ? "replay.completed" : "replay.mismatch",
+      {
+        replayed: outcome.replayed,
+        total: outcome.total,
+        ...(outcome.reason ? { reason: outcome.reason } : {}),
+      },
+      agent.id,
+    );
+    return {
+      replay: {
+        status: outcome.status,
+        replayedCalls: outcome.replayed,
+        totalCalls: outcome.total,
+        ...(outcome.reason ? { reason: outcome.reason } : {}),
+        note: "The browser is already at the replayed state. Take a fresh snapshot, finish or continue the mission on your own judgment, and report the verdict from evidence captured in this run.",
+      },
+    };
+  }
+
+  private async storeReplay(agent: AgentInstanceHandle): Promise<void> {
+    const cache = this.deps.replayCache;
+    if (!cache || !this.replayFingerprint || !this.gateway || !replayEligible(this.packet, this.gateway))
+      return;
+    await cache.put(this.replayFingerprint, this.gateway.recording, this.deps.clock.iso());
+    this.emit("replay.stored", { calls: this.gateway.recording.length }, agent.id);
   }
 
   private newInstance(previous?: AgentInstanceHandle, handoffId?: string): AgentInstanceHandle {
@@ -201,7 +283,7 @@ export class PacketRunner {
       runId: this.packet.runId,
       workPacketId: this.packet.packetId,
       sequence: this.instances.length + 1,
-      kind: "scripted",
+      kind: this.packet.mode === "agentic" ? "llm" : "scripted",
       model: this.packet.model,
       clock: this.deps.clock,
       ...(previous ? { previousAgentInstanceId: previous.id } : {}),
@@ -213,47 +295,85 @@ export class PacketRunner {
     return handle;
   }
 
-  private async openContext(): Promise<void> {
-    const { browser } = this.packet;
-    this.context = await this.deps.browser.newContext({
-      viewport: this.packet.viewport,
-      locale: browser.locale,
-      timezoneId: browser.timezoneId,
-      acceptDownloads: this.packet.safety.allowFileDownloads,
-      serviceWorkers: "block",
-    });
-    this.context.setDefaultTimeout(browser.actionTimeoutMs);
-    this.context.setDefaultNavigationTimeout(browser.navigationTimeoutMs);
-    await installDomainGuard(this.context, this.packet, this.packet.targetUrl, (b) => {
-      this.blockedRequests.push({ ...b, url: this.deps.redactor.redactString(b.url) });
-    });
-    if (browser.trace) await this.context.tracing.start({ screenshots: true, snapshots: true });
-    this.page = await this.context.newPage();
-    this.observers = new PageObservers(this.deps.redactor);
-    this.observers.attach(this.page);
-    // File choosers are never satisfied: uploads are not an allowlisted action.
-    this.page.on("filechooser", () => undefined);
+  private makeAgent(
+    instance: AgentInstanceHandle,
+    handoff?: unknown,
+  ): ScriptedAgent | LlmAgent | OpenCodeAgentDriver {
+    if (this.packet.mode !== "agentic") return new ScriptedAgent(instance, this.packet, this.deps.clock);
+    handoff ??= this.deps.verificationClaims
+      ? { untrustedFindingClaims: this.deps.verificationClaims }
+      : undefined;
+    const model = this.packet.model;
+    if (!model) throw new GatewayBlocked("agentic_model_required");
+    const env = this.deps.env ?? process.env;
+    if (model.provider === "opencode-agent")
+      return new OpenCodeAgentDriver(
+        instance,
+        this.packet,
+        this.deps.clock,
+        this.gateway!,
+        this.telemetry,
+        env,
+        handoff,
+      );
+    const client =
+      this.deps.modelClient ??
+      (model.provider === "openrouter"
+        ? new OpenRouterClient({ apiKey: env.BROWSERSWARM_LLM_API_KEY ?? "", baseUrl: model.baseUrl })
+        : undefined);
+    if (!client) throw new GatewayBlocked("model_driver_unavailable: " + model.provider);
+    return new LlmAgent(
+      instance,
+      this.packet,
+      this.deps.clock,
+      client,
+      this.gateway!,
+      this.telemetry,
+      handoff,
+      this.loop,
+    );
   }
 
-  private async closeContext(): Promise<void> {
-    if (!this.context) return;
-    try {
-      if (this.packet.browser.trace) {
-        await this.context.tracing.stop({ path: this.deps.storage.resolve(this.layout.trace) });
-        this.track(this.layout.trace, "trace");
-      }
-    } catch {
-      /* trace is best-effort evidence */
+  private async openContext(storageState?: string): Promise<void> {
+    const artifactDir = path.resolve(
+      this.deps.storage.resolve(this.packet.artifactDir),
+      `mcp-${this.instances.length + 1}`,
+    );
+    this.session = (this.deps.sessionFactory ?? ((o) => new McpBrowserSession(o)))({
+      packet: this.packet,
+      artifactDir,
+      signal: this.controller.signal,
+      storageState,
+      executablePath: (this.deps.env ?? process.env).BROWSERSWARM_CHROMIUM_EXECUTABLE,
+    });
+    if (this.packet.model?.provider !== "opencode-agent") await this.session.start();
+    const previous = this.gateway;
+    this.gateway = new GuardedBrowserSession({
+      packet: this.packet,
+      session: this.session,
+      artifactDir,
+      redactor: this.deps.redactor,
+      signal: this.controller.signal,
+      deadline: this.startMs + this.packet.timeoutMs,
+      riskApproved: this.deps.riskApproved,
+      resolveValue: this.resolveValue,
+    });
+    if (previous) {
+      this.gateway.toolCalls = previous.toolCalls;
+      this.gateway.evidence.push(...previous.evidence);
+      this.gateway.ledger.push(...previous.ledger);
     }
-    await this.context.close().catch(() => undefined);
-    this.context = undefined;
+    if (this.packet.model?.provider !== "opencode-agent") await this.gateway.refresh();
+  }
+  private async closeContext(): Promise<void> {
+    await this.session?.close();
   }
 
   private host(): AgentHost {
     const deadline = this.startMs + this.packet.timeoutMs;
     return {
       packet: this.packet,
-      signal: this.deps.signal,
+      signal: this.controller.signal,
       actionsUsed: () => this.actionCount,
       deadlineReached: () => this.deps.clock.now() >= deadline,
       isStepRisky: (i) => {
@@ -278,131 +398,39 @@ export class PacketRunner {
   }
 
   private async executeOne(index: number, agent: AgentInstanceHandle): Promise<StepStatusResult> {
-    const step = this.packet.steps[index] as TestStep;
-    const page = this.page as Page;
+    const step = this.packet.steps[index]!;
     const started = this.deps.clock.now();
-    const intent = describeStep(step);
-    this.emit("packet.step.started", { stepIndex: index, action: step.action, intent }, agent.id);
     this.actionCount++;
-    const blockedBefore = this.blockedRequests.length;
-    const currentUrl = page.url() === "about:blank" ? undefined : page.url();
-
     const decision = checkAction(step, index, {
       packet: this.packet,
-      currentUrl,
+      currentUrl: this.gateway?.url === "about:blank" ? undefined : this.gateway?.url,
       riskApproved: this.deps.riskApproved,
     });
-    if (!decision.allowed) {
-      this.emit(
-        "policy.blocked",
-        { stepIndex: index, action: step.action, reason: decision.reason },
-        agent.id,
-      );
-      const evidence = await this.evidenceFor(step, index);
-      await this.recordStep(agent, index, step, intent, started, {
-        status: "blocked",
-        summary: `Blocked by policy: ${decision.reason}`,
-        error: decision.reason,
-        evidence: evidence.map((e) => e.path ?? e.summary),
-      });
-      this.outcomeReason = `step ${index} blocked by policy: ${decision.reason}`;
-      return "blocked";
-    }
-
-    const ctx: StepExecutionContext = {
-      page,
-      packet: this.packet,
-      observers: this.observers as PageObservers,
-      storage: this.deps.storage,
-      redactor: this.deps.redactor,
-      resolveValue: this.resolveValue,
-    };
-    const outcome = await executeStep(ctx, step, index);
-    for (const e of outcome.evidence) {
-      this.track(e, e.includes("/screenshots/") ? "screenshot" : "dom");
-      if (e.includes("/screenshots/")) this.latestScreenshot = packetRelative(e, this.packet.packetId);
-    }
-
-    // Post-action scope check: a blocked navigation or an out-of-scope page ends the packet.
-    const newlyBlocked = this.blockedRequests.slice(blockedBefore).filter((b) => b.isNavigation);
-    const after = page.url();
-    const inScope = after === "about:blank" || checkUrl(after, this.packet.targetUrl, this.packet).allowed;
-    if (newlyBlocked.length || !inScope) {
-      const reason = newlyBlocked.length
-        ? `navigation to ${newlyBlocked[0]?.url} blocked: ${newlyBlocked[0]?.reason}`
-        : `page left allowed domains: ${this.deps.redactor.redactString(after)}`;
-      this.emit("policy.blocked", { stepIndex: index, action: step.action, reason }, agent.id);
-      const evidence = await this.evidenceFor(step, index);
-      await this.recordStep(agent, index, step, intent, started, {
-        status: "blocked",
-        summary: `Blocked: ${reason}`,
-        error: reason,
-        evidence: [...outcome.evidence, ...evidence.map((e) => e.path ?? e.summary)],
-      });
-      this.outcomeReason = `step ${index} blocked: ${reason}`;
-      return "blocked";
-    }
-
-    if (outcome.status === "failed") {
-      const evidence = await this.evidenceFor(step, index);
-      const extra: Evidence[] = outcome.evidence.map((p) => ({
-        evidenceId: newId("ev"),
-        type: p.includes("/screenshots/") ? "screenshot" : "dom",
-        path: p,
-        summary: "Evidence captured by the failing assertion",
-        createdAt: this.deps.clock.iso(),
-      }));
-      const finding = this.createFinding(
-        agent,
-        index,
-        step,
-        outcome.expected,
-        outcome.actual ?? outcome.error,
-        [...extra, ...evidence],
-      );
-      await this.recordStep(agent, index, step, intent, started, {
-        status: "failed",
-        summary: outcome.summary,
-        error: outcome.error,
-        evidence: [...outcome.evidence, ...evidence.filter((e) => e.path).map((e) => e.path as string)],
-      });
-      this.outcomeReason = `step ${index} (${step.action}) failed: ${outcome.error ?? outcome.summary}`;
-      this.emit(
-        "finding.created",
-        { findingId: finding.findingId, severity: finding.severity, stepIndex: index },
-        agent.id,
-      );
-      return "failed";
-    }
-
-    if (outcome.status === "passed") this.confirmedFacts.push(`Step ${index}: ${outcome.summary}`);
-    await this.recordStep(agent, index, step, intent, started, {
-      status: outcome.status,
-      summary: outcome.summary,
-      evidence: outcome.evidence,
-      ...(outcome.skipReason ? { skipReason: outcome.skipReason } : {}),
-    });
+    const outcome = decision.allowed
+      ? await executeScriptedStep(this.gateway!, step, this.resolveValue)
+      : {
+          status: "blocked" as const,
+          summary: decision.reason ?? "policy",
+          error: decision.reason,
+          evidence: [],
+          expected: undefined,
+          actual: undefined,
+        };
+    if (outcome.status !== "passed") {
+      this.outcomeReason = outcome.error ?? outcome.summary;
+      if (outcome.status === "failed")
+        this.createFinding(
+          agent,
+          index,
+          step,
+          outcome.expected,
+          outcome.actual ?? outcome.error,
+          this.gateway!.evidence.slice(-5),
+        );
+      else this.emit("policy.blocked", { stepIndex: index, reason: this.outcomeReason }, agent.id);
+    } else this.confirmedFacts.push(`Step ${index}: ${outcome.summary}`);
+    await this.recordStep(agent, index, step, describeStep(step), started, outcome);
     return outcome.status;
-  }
-
-  private async evidenceFor(step: TestStep, index: number): Promise<Evidence[]> {
-    const ctx: StepExecutionContext = {
-      page: this.page as Page,
-      packet: this.packet,
-      observers: this.observers as PageObservers,
-      storage: this.deps.storage,
-      redactor: this.deps.redactor,
-      resolveValue: this.resolveValue,
-    };
-    const evidence = await captureFailureEvidence(ctx, step, index, () => this.deps.clock.iso());
-    for (const e of evidence) {
-      if (e.path && e.type === "screenshot") {
-        this.track(e.path, "screenshot");
-        this.latestScreenshot = packetRelative(e.path, this.packet.packetId);
-      } else if (e.path && e.type === "dom") this.track(e.path, "dom");
-    }
-    await this.writeLogs();
-    return evidence;
   }
 
   private async recordStep(
@@ -434,7 +462,7 @@ export class PacketRunner {
       // Arguments keep unresolved {{testData.*}} templates, so ledgers never contain test values.
       args: red.redactValue(args as Record<string, unknown>),
       ...("locator" in step && step.locator ? { locator: step.locator } : {}),
-      url: red.redactString(this.page?.url() ?? ""),
+      url: red.redactString(this.gateway?.url ?? ""),
       durationMs,
       status: r.status,
       evidence: r.evidence.map((e) => packetRelative(e, this.packet.packetId)),
@@ -478,12 +506,30 @@ export class PacketRunner {
   }
 
   private async writeLogs(): Promise<void> {
-    if (!this.observers) return;
-    await this.deps.storage.writeJson(this.layout.console, this.observers.console);
-    await this.deps.storage.writeJson(this.layout.network, {
-      failures: this.observers.network,
-      blocked: this.blockedRequests,
-    });
+    const evidence = this.gateway?.evidence ?? [];
+    await this.deps.storage.writeJson(`${this.packet.artifactDir}/evidence.json`, evidence);
+    await this.deps.storage.writeJson(
+      this.layout.console,
+      evidence.filter((e) => e.type === "console"),
+    );
+    await this.deps.storage.writeJson(
+      this.layout.network,
+      evidence.filter((e) => e.type === "network"),
+    );
+    for (const e of evidence)
+      if (e.path)
+        this.track(
+          path.relative(this.deps.storage.root, e.path),
+          e.type === "screenshot"
+            ? "screenshot"
+            : e.type === "console" || e.type === "network"
+              ? e.type
+              : "dom",
+        );
+    const root = path.join(this.deps.storage.root, this.packet.artifactDir);
+    for (const file of await readdir(root, { recursive: true })) {
+      if (String(file).endsWith(".trace")) this.track(`${this.packet.artifactDir}/${file}`, "trace");
+    }
   }
 
   private createFinding(
@@ -496,7 +542,9 @@ export class PacketRunner {
   ): Finding {
     const severity: Severity = this.packet.priority;
     const red = this.deps.redactor;
-    const needsVerification = SEVERITY_RANK[severity] >= SEVERITY_RANK[this.deps.verifySeverityAtOrAbove];
+    const needsVerification =
+      this.packet.role !== "verifier" &&
+      SEVERITY_RANK[severity] >= SEVERITY_RANK[this.deps.verifySeverityAtOrAbove];
     const normalizedActual = (actual ?? "").replace(/\d+ms/g, "Nms").slice(0, 80);
     const finding: Finding = {
       findingId: newId("finding"),
@@ -511,8 +559,8 @@ export class PacketRunner {
       severity,
       confidence: "high",
       status: "candidate",
-      origin: "deterministic",
-      probabilistic: false,
+      origin: this.packet.mode === "agentic" ? "llm-assisted" : "deterministic",
+      probabilistic: this.packet.mode === "agentic",
       expected: truncate(
         red.redactString(expected ?? `${describeStep(step)} succeeds (${this.packet.expectedOutcome})`),
         1000,
@@ -526,6 +574,7 @@ export class PacketRunner {
       createdAt: this.deps.clock.iso(),
     };
     this.findings.push(finding);
+    this.emit("finding.created", { findingId: finding.findingId, severity, stepIndex: index }, agent.id);
     return finding;
   }
 
@@ -543,33 +592,18 @@ export class PacketRunner {
     handoffDocumentReference = "none",
   ): Promise<AgentCheckpoint> {
     const n = this.packet.steps.length;
-    const page = this.page;
     let browserSession: AgentCheckpoint["browserSession"] = { type: "none" };
-    if (this.packet.contextPolicy.restoreBrowserSession === "storage-state" && this.context) {
-      const state = await this.context.storageState();
-      // Sanitize: keep only cookies/origins inside the approved domains. Never copied into handoffs.
-      const sanitized = {
-        cookies: state.cookies.filter(
-          (c) =>
-            checkUrl(`https://${c.domain.replace(/^\./, "")}/`, this.packet.targetUrl, this.packet).allowed,
-        ),
-        origins: state.origins.filter((o) => checkUrl(o.origin, this.packet.targetUrl, this.packet).allowed),
-      };
-      await this.deps.storage.writeJson(this.layout.storageState, sanitized);
-      this.track(this.layout.storageState, "storage-state");
-      browserSession = {
-        type: "storage-state",
-        artifactPath: packetRelative(this.layout.storageState, this.packet.packetId),
-        redactionApplied: true,
-      };
+    if (this.session && this.packet.contextPolicy.restoreBrowserSession === "storage-state") {
+      const file = path.join(this.gateway!.options.artifactDir, "storage-state.json");
+      if (await this.session.saveStorage(file))
+        browserSession = {
+          type: "storage-state",
+          artifactPath: path.relative(path.resolve(this.deps.storage.root), file),
+          redactionApplied: true,
+        };
     }
-    let title: string | undefined;
-    try {
-      title = page ? await page.title() : undefined;
-    } catch {
-      title = undefined;
-    }
-    const url = page?.url();
+    const title = this.gateway?.title;
+    const url = this.gateway?.url;
     const cp = createCheckpoint({
       sequence: ++this.checkpointSeq,
       runId: this.packet.runId,
@@ -589,7 +623,22 @@ export class PacketRunner {
       ...(title ? { pageTitle: truncate(this.deps.redactor.redactString(title), 200) } : {}),
       viewport: this.packet.viewport,
       browserSession,
-      contextUsage: (this.agent as ScriptedAgent).lifecycle.getUsage(),
+      contextUsage: (this.agent as ScriptedAgent | LlmAgent | OpenCodeAgentDriver).lifecycle.getUsage(),
+      ...(this.packet.mode === "agentic"
+        ? {
+            agentProgress: {
+              telemetry: { ...this.telemetry, toolCalls: this.gateway?.toolCalls ?? 0 },
+              evidenceIds: this.gateway?.evidence.map((e) => e.evidenceId) ?? [],
+              remainingToolCalls: Math.max(
+                0,
+                Math.min(this.packet.actionBudget, this.packet.agent!.maxToolCalls) -
+                  (this.gateway?.toolCalls ?? 0),
+              ),
+              remainingTokens: Math.max(0, this.packet.agent!.maxTokens - this.telemetry.tokens),
+              ...(this.gateway?.verdict ? { verdict: this.gateway.verdict } : {}),
+            },
+          }
+        : {}),
       actionLedgerReference: "actions.ndjson",
       artifactManifestReference: "artifact-manifest.json",
       findingReferences: this.findings.map((f) => f.findingId),
@@ -611,16 +660,29 @@ export class PacketRunner {
   }
 
   private async handleResult(result: AgentRunResult): Promise<void> {
-    const agent = (this.agent as ScriptedAgent).instance;
+    const agent = (this.agent as ScriptedAgent | LlmAgent | OpenCodeAgentDriver).instance;
     switch (result.kind) {
       case "completed":
         agent.terminate("work packet completed");
         this.emit("agent.terminated", { reason: "completed" }, agent.id);
         await this.transition("COMPLETED");
         this.outcome = "passed";
+        await this.storeReplay(agent).catch(() => undefined);
         this.emit("packet.completed", { steps: this.packet.steps.length });
         return;
       case "failed":
+        if (this.packet.mode === "agentic") {
+          this.outcomeReason = this.gateway?.verdict?.summary ?? "invalid_or_missing_verdict";
+          if (this.gateway?.evidence.length)
+            this.createFinding(
+              agent,
+              result.stepIndex,
+              { action: "record_note", note: this.packet.expectedOutcome },
+              this.packet.expectedOutcome,
+              this.outcomeReason,
+              this.gateway.evidence.slice(-5),
+            );
+        }
         await this.skipRemaining(result.stepIndex + 1, "prior step failed");
         await this.writeCheckpoint("graceful_shutdown", agent, result.stepIndex);
         agent.terminate("step failed");
@@ -630,6 +692,7 @@ export class PacketRunner {
         this.emit("packet.failed", { stepIndex: result.stepIndex, reason: this.outcomeReason });
         return;
       case "blocked":
+        this.outcomeReason = this.outcomeReason ?? result.reason;
         await this.skipRemaining(result.stepIndex + 1, "packet blocked by policy");
         await this.writeCheckpoint("graceful_shutdown", agent, result.stepIndex);
         agent.terminate("blocked by policy");
@@ -642,7 +705,7 @@ export class PacketRunner {
         await this.writeCheckpoint("graceful_shutdown", agent, result.nextIndex);
         await this.skipRemaining(result.nextIndex, result.reason);
         agent.terminate(result.reason);
-        this.outcomeReason = result.reason;
+        this.outcomeReason = this.outcomeReason ?? result.reason;
         if (/timeout/.test(result.reason)) {
           await this.transition("FAILED", result.reason);
           this.outcome = "error";
@@ -674,7 +737,7 @@ export class PacketRunner {
    * without one (Milestone 1) or when preflight fails, the packet is BLOCKED with its remaining work reported.
    */
   private async rotate(nextIndex: number, reason: CheckpointReason, description: string): Promise<void> {
-    const agent = (this.agent as ScriptedAgent).instance;
+    const agent = (this.agent as ScriptedAgent | LlmAgent | OpenCodeAgentDriver).instance;
     this.rotationReasons.push(`${agent.id}: ${description}`);
     const handoffState = new TrackedState<HandoffState>(handoffStateMachine, "NOT_REQUIRED", (_from, to) => {
       if (to === "REQUIRED")
@@ -710,15 +773,12 @@ export class PacketRunner {
         handoffSequence: seq,
         handoffsUsed: this.handoffSeq,
         elapsedMsInPacket: this.deps.clock.now() - this.startMs,
-        actionsUsedInPacket: this.actionCount,
-        llmCallsUsedInPacket: 0,
+        actionsUsedInPacket:
+          this.packet.mode === "agentic" ? (this.gateway?.toolCalls ?? 0) : this.actionCount,
+        relevantVisibleStateSummary: this.gateway?.snapshot,
+        llmCallsUsedInPacket: this.telemetry.llmCalls,
         confirmedFacts: this.confirmedFacts,
-        consoleOrNetworkObservations: [
-          ...(this.observers?.consoleErrors() ?? []).map((c) => `console ${c.type}: ${c.text}`),
-          ...(this.observers?.networkFailures() ?? []).map(
-            (n) => `network ${n.status ?? n.failure}: ${n.url}`,
-          ),
-        ],
+        consoleOrNetworkObservations: [],
         ...(this.latestScreenshot ? { latestScreenshot: this.latestScreenshot } : {}),
       },
     );
@@ -796,8 +856,8 @@ export class PacketRunner {
     });
     const blockReason = !preflight.ok
       ? preflight.reason
-      : !this.deps.replacementFactory
-        ? "replacement_agent_unavailable: automatic replacement agents arrive in Milestone 3; handoff persisted for resumption"
+      : checkpoint.browserSession.type !== "storage-state"
+        ? "session_restoration_unavailable"
         : undefined;
     if (blockReason) {
       if (!preflight.ok && preflight.code === "HANDOFF_LIMIT_EXCEEDED") this.blockedByHandoffLimit = true;
@@ -813,11 +873,22 @@ export class PacketRunner {
       });
       return;
     }
-    // Replacement path (Milestone 3): factory creates the new instance; consumption is recorded there.
-    throw new BrowserSwarmError(
-      "NOT_IMPLEMENTED_IN_MILESTONE",
-      "replacement execution is wired in Milestone 3",
-    );
+    const statePath =
+      checkpoint.browserSession.type === "storage-state"
+        ? this.deps.storage.resolve(checkpoint.browserSession.artifactPath)
+        : undefined;
+    await this.closeContext();
+    await this.transition("RESUMING");
+    await this.openContext(statePath);
+    if (checkpoint.currentUrl && this.packet.contextPolicy.allowResumeCurrentUrl)
+      await this.gateway!.callTool("browser_navigate", { url: checkpoint.currentUrl }, false);
+    const replacement = this.newInstance(agent, handoff.handoffId);
+    summary.replacementAgentInstanceId = replacement.id;
+    summary.restorationOutcome = "storage_state_restored";
+    this.resumeOutcome = "storage_state_restored";
+    this.agent = this.makeAgent(replacement, handoff);
+    await this.transition("RUNNING");
+    await this.handleResult(await this.agent.run(this.host(), nextIndex));
   }
 
   private async skipRemaining(from: number, reason: string): Promise<void> {
@@ -841,24 +912,27 @@ export class PacketRunner {
     const err = error as Error;
     const isCheckpointFailure =
       error instanceof BrowserSwarmError && error.code === "CHECKPOINT_PERSISTENCE_FAILED";
+    const isBlocked = isCheckpointFailure || error instanceof GatewayBlocked;
     const message = truncate(this.deps.redactor.redactString(err?.message ?? String(error)), 1000);
     this.outcomeReason = isCheckpointFailure
       ? `checkpoint persistence failed: ${message}`
-      : `packet error: ${message}`;
+      : error instanceof GatewayBlocked
+        ? message
+        : `packet error: ${message}`;
     for (const inst of this.instances) inst.terminate(this.outcomeReason);
     await this.skipRemaining(0, this.outcomeReason).catch(() => undefined);
     try {
       if (!this.state.isTerminal()) {
-        const target: WorkPacketState = isCheckpointFailure ? "BLOCKED" : "FAILED";
+        const target: WorkPacketState = isBlocked ? "BLOCKED" : "FAILED";
         if (workPacketStateMachine.canTransition(this.state.state, target))
           await this.transition(target, this.outcomeReason);
       }
     } catch {
       /* state file write failed too; the event log still records the error */
     }
-    this.outcome = isCheckpointFailure ? "blocked" : "error";
+    this.outcome = isBlocked ? "blocked" : "error";
     if (isCheckpointFailure) this.blockedByCheckpointFailure = true;
-    this.emit(isCheckpointFailure ? "packet.blocked" : "packet.failed", { reason: this.outcomeReason });
+    this.emit(isBlocked ? "packet.blocked" : "packet.failed", { reason: this.outcomeReason });
   }
 
   private async finish(): Promise<PacketRunResult> {
@@ -875,6 +949,8 @@ export class PacketRunner {
     await storage.writeJson(this.layout.manifest, this.manifest);
     const records: AgentInstance[] = this.instances.map((i) => i.record);
     const report: PacketReport = {
+      telemetry: { ...this.telemetry, toolCalls: this.gateway?.toolCalls ?? 0 },
+      verdict: this.gateway?.verdict,
       packetId: this.packet.packetId,
       scenarioId: this.packet.scenarioId,
       scenarioTitle: this.packet.scenarioTitle,
@@ -886,9 +962,12 @@ export class PacketRunner {
       outcome: this.outcome,
       ...(this.outcomeReason ? { outcomeReason: this.outcomeReason } : {}),
       agentInstances: records,
-      actionsCompleted: this.ledger.filter((l) => l.status === "passed").length,
+      actionsCompleted:
+        this.packet.mode === "agentic"
+          ? (this.gateway?.ledger.filter((l) => l.outcome === "passed").length ?? 0)
+          : this.ledger.filter((l) => l.status === "passed").length,
       deterministicActions: this.ledger.filter((l) => !l.llmInvolved).length,
-      llmAssistedActions: this.ledger.filter((l) => l.llmInvolved).length,
+      llmAssistedActions: this.packet.mode === "agentic" ? (this.gateway?.toolCalls ?? 0) : 0,
       checkpoints: this.checkpointSeq,
       handoffs: this.handoffs,
       rotationReasons: this.rotationReasons,

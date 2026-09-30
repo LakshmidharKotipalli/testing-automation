@@ -818,10 +818,9 @@ export async function buildWebsiteUnderstandingProfile(
   limitations.push(
     "Only read-only behavior was observed; server-side effects of restricted controls are unknown by design.",
   );
-  if (req.discoveryPolicy.runAccessibilityScan)
-    limitations.push(
-      "Accessibility results come from automated axe-core rules only; manual review is still needed.",
-    );
+  limitations.push(
+    "Discovery reads the accessibility snapshot and network evidence through the MCP gateway. Automated axe-core scans and viewport overflow measurements are unavailable in this mode and were not run; form methods, document language and meta descriptions are not exposed by snapshots.",
+  );
 
   const facts: ProfileFacts = {
     version: 1,
@@ -885,7 +884,7 @@ export async function buildWebsiteUnderstandingProfile(
           })),
       },
       responsive: {
-        viewportsChecked: Object.keys(req.discoveryPolicy.viewports),
+        viewportsChecked: [],
         routesChecked: visited.filter((o) => o.overflow.length).length,
         concerns: concerns.slice(0, 50),
         mobileRelevant: Object.keys(req.discoveryPolicy.viewports).some((v) => /mobile|phone/i.test(v)),

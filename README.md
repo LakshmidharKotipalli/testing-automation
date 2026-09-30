@@ -30,8 +30,16 @@ pnpm browserswarm discover --url https://staging.example.com                    
 
 - **User-plan-driven.** Your plan is the scope. Subagents are scoped executors of approved work packets; they do
   not invent coverage, add scenarios, change expected outcomes or relax safety policy.
-- **Deterministic by default.** Scripted steps (navigate, click, fill, assert, screenshot, ...) run through typed,
-  allowlisted Playwright actions with **zero LLM calls**. LLMs are optional, bounded, policy-controlled fallbacks.
+- **Guarded browser access.** Every browser action, scripted or model-driven, goes through a guarded gateway to a
+  packet-owned [Playwright MCP](https://github.com/microsoft/playwright-mcp) server (pinned `@playwright/mcp@0.0.68`):
+  tool allowlist, scope checks on every page URL, request-level blocking inside the MCP server (redirects and
+  subresources included), budgets, redaction and challenge detection. There is no direct-Playwright fallback.
+- **Deterministic by default.** Scripted steps (navigate, click, fill, assert, screenshot, ...) run through the
+  gateway with **zero LLM calls**. Scripted checks the gateway cannot express (for example axe scans) are reported
+  as BLOCKED, never silently skipped. LLMs are optional, bounded, policy-controlled.
+- **Agentic mode (optional).** A plan with `mode: agentic` gives a model an approved mission and expected outcomes.
+  The model can only call gateway tools and can only finish through `report_verdict`; a pass needs evidence IDs
+  captured in that packet. Backends: OpenRouter (native tool calling). OpenCode fails closed, see below.
 - **Approval-first.** No browser, Playwright context or agent starts before an approval record is bound to the
   exact, hashed execution plan. Any change to the plan or its configuration invalidates the approval.
 - **Context-resilient.** An agent instance is disposable. When it nears its context, token, action or time budget,
@@ -55,22 +63,24 @@ flowchart TD
     Q --> W2[Work Packet B]
     Q --> W3[Work Packet C]
     W1 --> I1[Agent Instance 1]
-    I1 --> B1[Isolated Playwright Context]
+    I1 --> B1[Packet-owned MCP Browser Session]
     I1 --> M[Context Lifecycle Manager]
     M -->|Warning / Limit| CP[Checkpoint Writer]
     CP --> H[Handoff Document]
     H --> I2[Replacement Agent Instance]
-    I2 --> B2[Fresh Isolated Playwright Context]
-    W2 --> B3[Isolated Playwright Context]
-    W3 --> B4[Isolated Playwright Context]
+    I2 --> B2[Fresh Packet-owned MCP Browser Session]
+    W2 --> B3[Packet-owned MCP Browser Session]
+    W3 --> B4[Packet-owned MCP Browser Session]
     B1 --> S[Artifact Storage]
     B2 --> S
     B3 --> S
     B4 --> S
     S --> D[Finding Deduplicator]
-    D --> VR[Verifier Work Packets]
+    D --> VR[Conditional Verifier Packets]
     VR --> R[Reports JSON Markdown HTML JUnit]
 ```
+
+Browser path: `model or scripted step -> GuardedBrowserSession (gateway) -> Playwright MCP (stdio) -> Chromium/Chrome`.
 
 Two execution levels:
 
@@ -94,15 +104,17 @@ packages/shared          canonical JSON, SHA-256, atomic writes, redaction, ids,
 packages/policy-engine   domain allowlist, risk classification, per-action/LLM/handoff/resume checks
 packages/plan-compiler   YAML/JSON loading, validation, natural-language compiler
 packages/execution-planner  work-packet expansion, estimates, approval review display
-packages/discovery       Discovery Lead Agent (read-only crawl, guards, extraction), Website Understanding Profile, discovery reports
+packages/discovery       Discovery Lead Agent (read-only crawl over the MCP gateway, snapshot extraction), Website Understanding Profile, discovery reports
 packages/autonomous-planner  evidence-based role selection, AutonomousTestPlanGenerator, autonomous review, plan edits
 packages/approval        hash-bound approval records, risk approval, verification, prompt
 packages/orchestrator    run lifecycle, concurrency queue, packet runner
 packages/agent-runtime   agent instances and the deterministic scripted agent
 packages/context-lifecycle  context accounting and rotation triggers
 packages/handoff         checkpoints, handoff writer/validator/renderer, resume context, replacement preflight
-packages/browser-tools   typed Playwright actions, locators, domain guard, evidence capture
-packages/opencode-adapter  LLMClient interface, MockLLMClient, configurable OpenCodeCliClient
+packages/mcp-browser     packet-owned Playwright MCP session, in-server request guard, lifecycle and shutdown
+packages/mcp-gateway     guarded tool calls, scripted-step adapter, read-only discovery browser, evidence, verdicts
+packages/llm-agent       agentic LLM loop, loop guard, OpenCode driver, guarded replay cache
+packages/opencode-adapter  chat/tool-call clients: OpenRouter, mock, configurable OpenCode CLI
 packages/storage         StorageAdapter, filesystem backend, NDJSON event store, artifact layout
 packages/reporters       run report (JSON, Markdown)
 packages/test-fixtures   local fixture web application (no external network)
@@ -116,7 +128,8 @@ Requirements: Node.js 20+, pnpm 10.
 
 ```bash
 pnpm install
-pnpm exec playwright install chromium   # skip if browsers are already provisioned
+# Install the Chromium that matches the Playwright bundled with @playwright/mcp (not a root Playwright):
+node "$(dirname "$(pnpm --filter @browserswarm/mcp-browser exec node -p 'require.resolve("playwright/package.json",{paths:[require.resolve("@playwright/mcp/package.json")]})')")/cli.js" install chromium
 pnpm build
 cp .env.example .env                    # central configuration (see below)
 ```
@@ -130,6 +143,14 @@ BROWSERSWARM_TARGET_URL=https://staging.example.com   # the website under test
 BROWSERSWARM_ALLOWED_DOMAINS=                         # optional; defaults to the URL's host
 BROWSERSWARM_LLM_API_KEY=sk-...                       # optional; only for LLM-assisted features
 BROWSERSWARM_LLM_API_KEY_ENV=ANTHROPIC_API_KEY        # name OpenCode/the provider reads the key from
+# Agentic execution (changing these needs a new preview and approval):
+BROWSERSWARM_LLM_PROVIDER=openrouter                  # openrouter | opencode
+BROWSERSWARM_LLM_MODEL=                               # model id
+BROWSERSWARM_LLM_BASE_URL=                            # optional OpenAI-compatible base URL
+OPENROUTER_API_KEY=                                   # read from the environment only
+BROWSERSWARM_BROWSER_CHANNEL=                         # chromium | chrome
+BROWSERSWARM_CHROMIUM_EXECUTABLE=                     # optional explicit browser binary
+BROWSERSWARM_REPLAY_CACHE_DIR=                        # optional, see guarded replay
 ```
 
 - Every plan without an explicit `target`, every prompt compiled without `--url`, and the fixture server use
@@ -234,6 +255,35 @@ Scenarios fan out into the cross-product of scenario x role x viewport (x browse
 trace, screenshots, logs, checkpoint chain and handoff chain. Failures in one packet do not stop the others
 unless `execution.failFast` is set.
 
+## Agentic mode, browser projects, verifiers and replay
+
+All of these are optional plan blocks, bound into the packet and execution-plan hashes (changing one requires a
+new preview and approval). Full reference: [docs/test-plan-format.md](docs/test-plan-format.md).
+
+```yaml
+mode: agentic # model-driven packets; default limits: 50 tool calls, 20 model calls, 50k tokens
+models: { default: { provider: openrouter, model: <id> } }
+browserProjects: # scenario x role x viewport x project; Chrome/Chromium only
+  - { name: chromium, channel: chromium }
+  - { name: chrome, channel: chrome }
+verification: { enabled: true } # one conditional verifier reserved per primary packet at preview
+replay: { enabled: true } # opt-in guarded replay (off by default)
+```
+
+- **Projects** get distinct packet IDs, artifact directories and profiles. Plans without projects are unchanged.
+  Firefox, WebKit and bot-protection bypasses are not supported. A detected challenge ends as
+  `BLOCKED: bot_protection_challenge`; the remedy is allowlisting your test traffic with the site owner.
+- **Verifiers** run only if their source packet has findings at or above `reporting.verifySeverityAtOrAbove`, in a
+  fresh browser with replay off, and are never verified themselves. A deterministic re-run failing at the same step
+  is `confirmed`; model-only confirmation is `likely` (probabilistic); a failure that does not reproduce is
+  `unverified`.
+- **Replay** caches successful, non-risky agentic sequences by a semantic fingerprint (mission, scope, policy, model,
+  browser, tool schemas). Entries hold role/name targets only. Replays re-run every gateway check, re-resolve targets,
+  and the model still reports the verdict from fresh evidence. A safe mismatch resumes the model; a policy violation
+  blocks the packet.
+- **Discovery** uses the same session, read-only. It builds the profile from accessibility snapshots and network
+  evidence; axe scans and viewport overflow measurements are unavailable there and are recorded as limitations.
+
 ## Context lifecycle, checkpoints and handoffs
 
 The `ContextLifecycleManager` tracks exact provider token usage when reported and conservative estimates
@@ -256,6 +306,10 @@ verified, redacted, size-bounded and understood by a fresh agent (or a human).
 Details: [docs/context-lifecycle.md](docs/context-lifecycle.md), [docs/handoff-format.md](docs/handoff-format.md).
 
 ## OpenCode and LLM fallback
+
+> **OpenCode agentic execution is not available yet.** The installed OpenCode (2.0.19) does not expose its effective
+> merged configuration, so tool and config isolation cannot be verified; BrowserSwarm fails closed before any
+> packet browser starts. Use OpenRouter for agentic runs. See [docs/mcp-migration-notes.md](docs/mcp-migration-notes.md).
 
 Models are configured per role and invoked through a configurable OpenCode CLI profile (`command`,
 `argsTemplate` with `{model}`, output parser, timeout, environment allowlist). The example command syntax is
@@ -280,14 +334,15 @@ An exhausted context is never silently ignored.
 
 ## Milestone status
 
-| Milestone | Scope                                                                                                                                                                                                                        | Status                                                                                    |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 1         | Approval-first deterministic foundation: schemas, hashing, validation, execution plans, approval gate, policy baseline, Playwright executor, fixture site, checkpoints, handoff schemas/writer, JSON/Markdown reports, tests | **Implemented**                                                                           |
-| 2         | Role-specific checks (axe-core, overflow matrix, visual), deduplication, HTML/JUnit reports                                                                                                                                  | Partial: `run_accessibility_scan` (axe-core) and `inspect_accessibility_tree` implemented |
-| -         | Autonomous discovery-led mode: Discovery Lead Agent, Website Understanding Profile, AutonomousTestPlanGenerator, scope resolution, autonomous review                                                                         | **Implemented**                                                                           |
-| 3         | Automatic replacement agents: storage-state restore, safe replay, resume validation                                                                                                                                          | Planned (interfaces and preflight implemented)                                            |
-| 4         | OpenCode LLM fallback wiring, verifier packets, token telemetry in reports                                                                                                                                                   | Planned (client, mock and structured output implemented)                                  |
-| 5         | Dashboard UI, replay tooling, multi-browser projects                                                                                                                                                                         | Planned                                                                                   |
+| Milestone | Scope                                                                                                                                                                                                                        | Status                                                                                                              |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| 1         | Approval-first deterministic foundation: schemas, hashing, validation, execution plans, approval gate, policy baseline, Playwright executor, fixture site, checkpoints, handoff schemas/writer, JSON/Markdown reports, tests | **Implemented**                                                                                                     |
+| 2         | Role-specific checks (axe-core, overflow matrix, visual), deduplication, HTML/JUnit reports                                                                                                                                  | Deferred: axe-core and overflow measurement were removed with direct Playwright; `inspect_accessibility_tree` works |
+| -         | Autonomous discovery-led mode: Discovery Lead Agent, Website Understanding Profile, AutonomousTestPlanGenerator, scope resolution, autonomous review                                                                         | **Implemented**                                                                                                     |
+| 3         | Automatic replacement agents: storage-state restore, safe replay, resume validation                                                                                                                                          | Planned (interfaces and preflight implemented)                                                                      |
+| 4         | OpenRouter agentic execution, verifier packets, token telemetry in reports                                                                                                                                                   | **Implemented** (OpenCode execution blocked pending verifiable isolation)                                           |
+| MCP       | Guarded Playwright MCP execution, MCP-based discovery, Chrome/Chromium project matrix, guarded replay, removal of direct Playwright                                                                                          | **Implemented** (see [docs/mcp-migration-notes.md](docs/mcp-migration-notes.md))                                    |
+| 5         | Dashboard UI, replay tooling                                                                                                                                                                                                 | Planned                                                                                                             |
 
 In Milestone 1, when a lifecycle limit is reached the packet is checkpointed, a validated handoff is persisted,
 the agent instance is terminated, and the packet is BLOCKED with `replacement_agent_unavailable`.
@@ -297,7 +352,7 @@ the agent instance is terminated, and the packet is BLOCKED with `replacement_ag
 ```bash
 pnpm lint        # eslint + prettier --check
 pnpm typecheck   # tsc over all sources and tests
-pnpm test        # vitest: unit + integration (integration uses real Chromium)
+pnpm test        # vitest: unit + integration (integration drives real Chromium through Playwright MCP)
 pnpm build       # tsc per package, topological order
 ```
 

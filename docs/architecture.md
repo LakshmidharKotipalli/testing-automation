@@ -44,7 +44,7 @@ flowchart TD
 | Agent Instance              | `agent-runtime`                  | Disposable executor; the scripted agent runs approved steps in order with zero LLM calls.                                      |
 | Context Lifecycle Manager   | `context-lifecycle`              | Exact/estimated context accounting and rotation triggers, evaluated only between actions.                                      |
 | Checkpoint Writer / Handoff | `handoff`                        | Hash-protected checkpoints, deterministic handoff writer, validator, Markdown renderer, resume context, replacement preflight. |
-| Browser Tools               | `browser-tools`                  | Typed allowlisted Playwright actions, locator resolution, context-level domain guard, observers, failure evidence.             |
+| MCP Browser / Gateway       | `mcp-browser`, `mcp-gateway`     | Packet-owned Playwright MCP sessions, in-server request guard, guarded tool calls, read-only discovery browser, evidence.      |
 | LLM Adapter                 | `opencode-adapter`               | Provider-neutral `LLMClient`, `MockLLMClient`, configurable `OpenCodeCliClient`, strict structured output.                     |
 | Artifact Storage / Events   | `storage`                        | `StorageAdapter` interface, filesystem backend with atomic writes, NDJSON event store, artifact layout.                        |
 | Reports                     | `reporters`                      | `RunReport` (Zod) and Markdown rendering.                                                                                      |

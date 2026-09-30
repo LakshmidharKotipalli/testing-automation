@@ -69,6 +69,9 @@ export function isCategoryAllowed(category: RiskCategory, safety: SafetyPolicy):
     case "data_modification":
     case "irreversible":
       return destructiveOk;
+    case "tool_evaluate":
+    case "tool_admin":
+      return true;
     case "external_navigation":
       // Navigation is always constrained to allowedDomains; there is no opt-out.
       return false;
