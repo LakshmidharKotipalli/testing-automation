@@ -1,5 +1,4 @@
 import { verifyApprovedPlan, type VerifiedApprovedPlan } from "@browserswarm/approval";
-import type { BrowserLauncher } from "@browserswarm/browser-tools";
 import type { SessionFactory } from "@browserswarm/mcp-browser";
 import type { ChatClient } from "@browserswarm/opencode-adapter";
 import {
@@ -24,8 +23,6 @@ import { Semaphore } from "./semaphore.js";
 export interface RunOptions {
   /** Run directory (artifacts/{runId} by default). */
   outputDir: string;
-  /** @deprecated Ignored; browser sessions are packet owned. */
-  launcher?: BrowserLauncher;
   sessionFactory?: SessionFactory;
   modelClient?: ChatClient;
   signal?: AbortSignal;

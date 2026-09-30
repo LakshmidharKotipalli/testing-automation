@@ -332,7 +332,7 @@ export interface RunCommandOptions extends DecisionOptions, ScopeFlags, ModelOpt
   confirmAuthorized?: boolean;
   discoveryConfig?: string;
   /** Test seams (not CLI flags). */
-  discoveryLauncher?: AutonomousOptions["discoveryLauncher"];
+  discoverySessionFactory?: AutonomousOptions["discoverySessionFactory"];
   runSessionFactory?: AutonomousOptions["runSessionFactory"];
   url?: string;
   allowedDomain?: string[];

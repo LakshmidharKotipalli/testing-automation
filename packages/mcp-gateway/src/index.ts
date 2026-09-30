@@ -18,13 +18,8 @@ import {
 } from "@browserswarm/policy-engine";
 import { newId, type Redactor } from "@browserswarm/shared";
 import type { BrowserSession, Tool, CallToolResult } from "@browserswarm/mcp-browser";
-export class GatewayBlocked extends Error {}
-export function toolText(result: CallToolResult): string {
-  return result.content
-    .filter((c) => c.type === "text")
-    .map((c) => c.text)
-    .join("\n");
-}
+import { GatewayBlocked, toolText, detectChallenge } from "./guard-common.js";
+export { GatewayBlocked, toolText, detectChallenge };
 export const VERDICT_TOOL: Tool = {
   name: "report_verdict",
   description: "Record the final verdict using captured evidence IDs for every expected outcome.",
@@ -259,12 +254,7 @@ export class GuardedBrowserSession {
       !checkUrl(this.url, this.options.packet.targetUrl, this.options.packet).allowed
     )
       throw new GatewayBlocked("scope_exit");
-    if (
-      /just a moment|verify (?:that )?you are human|checking your browser|performing security verification|cf-chl-/i.test(
-        this.title + "\n" + snapshot,
-      )
-    )
-      throw new GatewayBlocked("bot_protection_challenge");
+    if (detectChallenge(this.title, snapshot)) throw new GatewayBlocked("bot_protection_challenge");
   }
   async refresh(): Promise<void> {
     const result = await this.options.session.callTool("browser_snapshot", {});
@@ -333,3 +323,4 @@ export class GuardedBrowserSession {
 }
 export * from "./scripted.js";
 export * from "./bridge.js";
+export * from "./discovery.js";

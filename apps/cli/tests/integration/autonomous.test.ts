@@ -2,7 +2,6 @@ import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough, Readable } from "node:stream";
-import { CountingLauncher } from "@browserswarm/browser-tools";
 import { McpBrowserSession, type SessionFactory } from "@browserswarm/mcp-browser";
 import { RunLayout } from "@browserswarm/storage";
 import { startFixtureServer, type FixtureServer } from "@browserswarm/test-fixtures";
@@ -54,16 +53,14 @@ const readJson = async (file: string) => JSON.parse(await readFile(file, "utf8")
 describe("browserswarm run (autonomous mode)", () => {
   it("URL only selects autonomous mode; declining authorization starts no browser", async () => {
     const t = await setup("no\n");
-    const launcher = new CountingLauncher();
     const sessions = countingSessions();
     const code = await cmdRun(t.io, {
       url: server.url,
       output: "out",
-      discoveryLauncher: launcher,
+      discoverySessionFactory: sessions.factory,
       runSessionFactory: sessions.factory,
     });
     expect(code).toBe(EXIT.REJECTED);
-    expect(launcher.launches).toBe(0);
     expect(sessions.count()).toBe(0);
     expect(t.out()).toContain("BrowserSwarm Autonomous Discovery: Preflight");
     const run = await readJson(path.join(t.cwd, "out", RunLayout.metadata.run));
@@ -72,18 +69,18 @@ describe("browserswarm run (autonomous mode)", () => {
 
   it("discovers, shows the review, and on reject runs no test subagent", async () => {
     const t = await setup("yes\nreject\n");
-    const discovery = new CountingLauncher();
+    const discovery = countingSessions();
     const execution = countingSessions();
     const code = await cmdRun(t.io, {
       url: server.url,
       promptText: "Test this website.",
       discoveryConfig: "discovery.yaml",
       output: "out",
-      discoveryLauncher: discovery,
+      discoverySessionFactory: discovery.factory,
       runSessionFactory: execution.factory,
     });
     expect(code).toBe(EXIT.REJECTED);
-    expect(discovery.contexts).toBe(1);
+    expect(discovery.count()).toBe(1);
     expect(execution.count()).toBe(0);
     expect(t.out()).toContain("BrowserSwarm Autonomous Discovery Review");
     const dir = path.join(t.cwd, "out");

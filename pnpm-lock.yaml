@@ -20,9 +20,6 @@ importers:
       globals:
         specifier: ^15.14.0
         version: 15.15.0
-      playwright:
-        specifier: 1.56.1
-        version: 1.56.1
       prettier:
         specifier: ^3.4.2
         version: 3.9.9
@@ -47,9 +44,6 @@ importers:
       '@browserswarm/autonomous-planner':
         specifier: workspace:*
         version: link:../../packages/autonomous-planner
-      '@browserswarm/browser-tools':
-        specifier: workspace:*
-        version: link:../../packages/browser-tools
       '@browserswarm/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -152,27 +146,6 @@ importers:
         specifier: workspace:*
         version: link:../shared
 
-  packages/browser-tools:
-    dependencies:
-      '@browserswarm/core':
-        specifier: workspace:*
-        version: link:../core
-      '@browserswarm/policy-engine':
-        specifier: workspace:*
-        version: link:../policy-engine
-      '@browserswarm/shared':
-        specifier: workspace:*
-        version: link:../shared
-      '@browserswarm/storage':
-        specifier: workspace:*
-        version: link:../storage
-      axe-core:
-        specifier: ^4.10.2
-        version: 4.13.0
-      playwright:
-        specifier: 1.56.1
-        version: 1.56.1
-
   packages/context-lifecycle:
     dependencies:
       '@browserswarm/core':
@@ -203,15 +176,18 @@ importers:
       '@browserswarm/autonomous-planner':
         specifier: workspace:*
         version: link:../autonomous-planner
-      '@browserswarm/browser-tools':
-        specifier: workspace:*
-        version: link:../browser-tools
       '@browserswarm/context-lifecycle':
         specifier: workspace:*
         version: link:../context-lifecycle
       '@browserswarm/core':
         specifier: workspace:*
         version: link:../core
+      '@browserswarm/mcp-browser':
+        specifier: workspace:*
+        version: link:../mcp-browser
+      '@browserswarm/mcp-gateway':
+        specifier: workspace:*
+        version: link:../mcp-gateway
       '@browserswarm/opencode-adapter':
         specifier: workspace:*
         version: link:../opencode-adapter
@@ -224,9 +200,6 @@ importers:
       '@browserswarm/storage':
         specifier: workspace:*
         version: link:../storage
-      playwright:
-        specifier: 1.56.1
-        version: 1.56.1
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -376,9 +349,6 @@ importers:
       '@browserswarm/approval':
         specifier: workspace:*
         version: link:../approval
-      '@browserswarm/browser-tools':
-        specifier: workspace:*
-        version: link:../browser-tools
       '@browserswarm/core':
         specifier: workspace:*
         version: link:../core
@@ -1024,10 +994,6 @@ packages:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
 
-  axe-core@4.13.0:
-    resolution: {integrity: sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A==}
-    engines: {node: '>=4'}
-
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
 
@@ -1551,18 +1517,8 @@ packages:
     resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
     engines: {node: '>=16.20.0'}
 
-  playwright-core@1.56.1:
-    resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
-    engines: {node: '>=18'}
-    hasBin: true
-
   playwright-core@1.59.0-alpha-1771104257000:
     resolution: {integrity: sha512-YiXup3pnpQUCBMSIW5zx8CErwRx4K6O5Kojkw2BzJui8MazoMUDU6E3xGsb1kzFviEAE09LFQ+y1a0RhIJQ5SA==}
-    engines: {node: '>=18'}
-    hasBin: true
-
-  playwright@1.56.1:
-    resolution: {integrity: sha512-aFi5B0WovBHTEvpM3DzXTUaeN6eN0qWnTkKx4NQaH4Wvcmc153PdaY2UBdSYKaGYw+UyWXSVyxDUg5DoPEttjw==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -2308,8 +2264,6 @@ snapshots:
 
   assertion-error@2.0.1: {}
 
-  axe-core@4.13.0: {}
-
   balanced-match@1.0.2: {}
 
   balanced-match@4.0.4: {}
@@ -2827,15 +2781,7 @@ snapshots:
 
   pkce-challenge@5.0.1: {}
 
-  playwright-core@1.56.1: {}
-
   playwright-core@1.59.0-alpha-1771104257000: {}
-
-  playwright@1.56.1:
-    dependencies:
-      playwright-core: 1.56.1
-    optionalDependencies:
-      fsevents: 2.3.2
 
   playwright@1.59.0-alpha-1771104257000:
     dependencies:

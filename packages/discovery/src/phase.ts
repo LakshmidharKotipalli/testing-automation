@@ -1,4 +1,4 @@
-import type { BrowserLauncher } from "@browserswarm/browser-tools";
+import type { SessionFactory } from "@browserswarm/mcp-browser";
 import type {
   DiscoveryAuthorizationRecord,
   DiscoveryReport,
@@ -18,7 +18,8 @@ export interface DiscoveryPhaseInput {
   storage: StorageAdapter;
   events: EventStore;
   redactor: Redactor;
-  launcher?: BrowserLauncher;
+  sessionFactory?: SessionFactory;
+  executablePath?: string;
   clock?: Clock;
   signal?: AbortSignal;
   llm?: ProfileOptions["llm"];
@@ -43,7 +44,8 @@ export async function runDiscoveryPhase(input: DiscoveryPhaseInput): Promise<Dis
     storage: input.storage,
     events: input.events,
     redactor: input.redactor,
-    ...(input.launcher ? { launcher: input.launcher } : {}),
+    ...(input.sessionFactory ? { sessionFactory: input.sessionFactory } : {}),
+    ...(input.executablePath ? { executablePath: input.executablePath } : {}),
     ...(input.clock ? { clock: input.clock } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
   });

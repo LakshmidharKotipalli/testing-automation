@@ -4,7 +4,7 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { WorkPacket } from "@browserswarm/core";
+import type { BrowserConfig, WorkPacket } from "@browserswarm/core";
 import { checkUrl } from "@browserswarm/policy-engine";
 import { processHost } from "./process-host.js";
 import { guardSource } from "./request-guard.js";
@@ -17,8 +17,18 @@ export interface BrowserSession {
   saveStorage(filename: string): Promise<boolean>;
   close(): Promise<void>;
 }
+/** The subset of a packet a browser session needs: scope, browser configuration and a binding hash. */
+export interface SessionPacket {
+  browser: BrowserConfig;
+  viewport: { width: number; height: number };
+  targetUrl: string;
+  allowedDomains: string[];
+  allowSubdomains: boolean;
+  timeoutMs: number;
+  workPacketHash: string;
+}
 export interface SessionOptions {
-  packet: WorkPacket;
+  packet: SessionPacket | WorkPacket;
   artifactDir: string;
   signal: AbortSignal;
   storageState?: string;

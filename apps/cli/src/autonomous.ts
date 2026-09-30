@@ -9,7 +9,6 @@ import {
   type InteractiveDecision,
 } from "@browserswarm/approval";
 import { AutonomousTestPlanGenerator, renderAutonomousReview } from "@browserswarm/autonomous-planner";
-import type { BrowserLauncher } from "@browserswarm/browser-tools";
 import type { SessionFactory } from "@browserswarm/mcp-browser";
 import {
   AgentRoleSchema,
@@ -90,7 +89,7 @@ export interface AutonomousOptions extends ScopeFlags {
   /** `discover` command: stop at PENDING_APPROVAL (discovery + plan + review, nothing executed). */
   stopAfterPlan?: boolean;
   /** Test seams: browser launchers for the discovery phase and the approved run. */
-  discoveryLauncher?: BrowserLauncher;
+  discoverySessionFactory?: SessionFactory;
   runSessionFactory?: SessionFactory;
   llmClient?: LLMClient;
 }
@@ -314,7 +313,10 @@ async function runAutonomousFlow(
       storage,
       events,
       redactor,
-      ...(opts.discoveryLauncher ? { launcher: opts.discoveryLauncher } : {}),
+      ...(opts.discoverySessionFactory ? { sessionFactory: opts.discoverySessionFactory } : {}),
+      ...(io.env.BROWSERSWARM_CHROMIUM_EXECUTABLE
+        ? { executablePath: io.env.BROWSERSWARM_CHROMIUM_EXECUTABLE }
+        : {}),
       ...(signal ? { signal } : {}),
       ...(opts.promptText ? { userIntent: opts.promptText } : {}),
       ...(llmClient && discoveryModel

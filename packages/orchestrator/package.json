@@ -17,7 +17,6 @@
   "dependencies": {
     "@browserswarm/agent-runtime": "workspace:*",
     "@browserswarm/approval": "workspace:*",
-    "@browserswarm/browser-tools": "workspace:*",
     "@browserswarm/core": "workspace:*",
     "@browserswarm/handoff": "workspace:*",
     "@browserswarm/policy-engine": "workspace:*",

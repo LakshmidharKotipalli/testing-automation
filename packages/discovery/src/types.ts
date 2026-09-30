@@ -1,4 +1,3 @@
-import type { AxeScanResult, ConsoleEntry, NetworkEntry } from "@browserswarm/browser-tools";
 import type {
   AuthBoundary,
   BlockedRoute,
@@ -10,6 +9,36 @@ import type {
 } from "@browserswarm/core";
 import type { PageExtract } from "./extract.js";
 import type { DiscoveryBlockedRequest } from "./guards.js";
+
+export interface ConsoleEntry {
+  type: string;
+  text: string;
+  url: string;
+  at: string;
+}
+
+export interface NetworkEntry {
+  url: string;
+  method: string;
+  status?: number;
+  failure?: string;
+  resourceType: string;
+  at: string;
+}
+
+export interface AxeScanResult {
+  url: string;
+  violations: {
+    id: string;
+    impact: string;
+    help: string;
+    helpUrl: string;
+    nodeCount: number;
+    targets: string[];
+  }[];
+  passes: number;
+  incomplete: number;
+}
 
 export interface InteractionRecord {
   kind: "tab" | "accordion" | "details" | "menu" | "pagination" | "toggle" | "cookie-banner";
