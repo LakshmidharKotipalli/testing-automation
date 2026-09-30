@@ -8,6 +8,7 @@ import {
 } from "./common.js";
 import {
   BrowserConfigSchema,
+  BrowserProjectSchema,
   ContextPolicySchema,
   LlmPolicySchema,
   ModelRefSchema,
@@ -66,6 +67,8 @@ export const WorkPacketSchema = z
     viewportName: z.string(),
     viewport: ViewportSizeSchema,
     browser: BrowserConfigSchema,
+    /** Present only when the plan declares browser projects. */
+    projectName: z.string().optional(),
     targetUrl: z.string().url(),
     allowedDomains: z.array(z.string()).min(1),
     allowSubdomains: z.boolean(),
@@ -111,7 +114,14 @@ export const ExecutionPlanSummarySchema = z
     estimatedRuntimeMs: z.object({ min: z.number().int(), max: z.number().int() }).strict(),
     testDataCategories: z.array(z.string()),
     browserMatrix: z.array(
-      z.object({ engine: z.string(), viewportName: z.string(), viewport: ViewportSizeSchema }).strict(),
+      z
+        .object({
+          engine: z.string(),
+          project: z.string().optional(),
+          viewportName: z.string(),
+          viewport: ViewportSizeSchema,
+        })
+        .strict(),
     ),
   })
   .strict();
@@ -147,6 +157,7 @@ export const ExecutionPlanSchema = z
     contextLifecycle: ContextPolicySchema,
     safety: SafetyPolicySchema,
     browser: BrowserConfigSchema,
+    browserProjects: z.array(BrowserProjectSchema).optional(),
     reporting: ReportingConfigSchema,
     /** Hash-bound test data (literals or env references). Values are resolved only at run time. */
     testData: TestDataSchema,

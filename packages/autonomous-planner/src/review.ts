@@ -100,7 +100,7 @@ export function renderAutonomousReview(
   line(`  - Work packets proposed: ${ep.summary.workPacketCount}`);
   line(`  - Maximum concurrent subagents: ${ep.summary.maxConcurrentWorkPackets}`);
   line(
-    `  - Browser/viewport matrix: ${ep.summary.browserMatrix.map((b) => `${b.engine} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`).join("; ")}`,
+    `  - Browser/viewport matrix: ${ep.summary.browserMatrix.map((b) => `${b.engine}${b.project ? ` [${b.project}]` : ""} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`).join("; ")}`,
   );
   line(`  - Deterministic packets: ${ep.summary.deterministicPackets}`);
   line(`  - LLM fallback-capable packets: ${ep.summary.llmCapablePackets}`);

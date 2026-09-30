@@ -10,6 +10,7 @@ import {
   ValidationError,
   type AgentRole,
   type ExecutionPlan,
+  type BrowserProject,
   type ExecutionPlanSummary,
   type ModelRef,
   type TestPlan,
@@ -44,59 +45,68 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
   const runId = options.runId ?? newRunId(new Date(clock.now()));
   const planHash = computePlanHash(plan);
   const packets: WorkPacket[] = [];
+  const projects: Array<BrowserProject | undefined> = plan.browserProjects?.length
+    ? plan.browserProjects
+    : [undefined];
 
   for (const scenario of plan.scenarios) {
     const scenarioFlags = report.riskFlags.filter((f) => f.scenarioId === scenario.id);
     for (const role of scenario.roles) {
       for (const viewportName of scenario.viewports) {
-        const viewport = plan.viewports[viewportName];
-        if (!viewport) throw new ValidationError("unknown viewport", [viewportName]);
-        const model = modelForRole(plan, role);
-        const llmCapable =
-          plan.llm.strategy !== "disabled" && model !== null && plan.llm.maxCallsPerWorkPacket > 0;
-        const packetId = `${scenario.id}-${role}-${viewportName}`;
-        const packet: Omit<WorkPacket, "workPacketHash"> = {
-          version: 1,
-          packetId,
-          runId,
-          planId: plan.id,
-          scenarioId: scenario.id,
-          scenarioTitle: scenario.title,
-          objective: scenario.objective,
-          priority: scenario.priority,
-          role,
-          viewportName,
-          viewport,
-          browser: plan.browser,
-          targetUrl: plan.target.url,
-          allowedDomains: plan.target.allowedDomains,
-          allowSubdomains: plan.target.allowSubdomains,
-          steps: scenario.steps,
-          expectedOutcome: scenario.expectedOutcome,
-          mode: plan.mode === "agentic" ? "agentic" : llmCapable ? "llm-capable" : "deterministic",
-          runtimeVersion: "mcp-v1",
-          instructions: scenario.instructions,
-          agent: AgentPolicySchema.parse(plan.agent ?? {}),
-          model,
-          llmPolicy: plan.mode === "agentic" ? { ...plan.llm, strategy: "guided" } : plan.llm,
-          contextPolicy: plan.contextLifecycle,
-          safety: plan.safety,
-          timeoutMs: plan.execution.agentTimeoutMs,
-          actionBudget: plan.execution.maxActionsPerAgent,
-          llmCallBudget:
-            plan.mode === "agentic"
-              ? AgentPolicySchema.parse(plan.agent ?? {}).maxLlmCalls
-              : llmCapable
-                ? plan.llm.maxCallsPerWorkPacket
-                : 0,
-          artifactDir: `packets/${packetId}`,
-          planHash,
-          riskFlags: scenarioFlags,
-          requiresExplicitRiskApproval: scenarioFlags.length > 0,
-          // Only present for planner-generated scenarios, so instruction-led packet hashes are unchanged.
-          ...(scenario.rationale ? { rationale: scenario.rationale } : {}),
-        };
-        packets.push({ ...packet, workPacketHash: computeWorkPacketHash(packet) });
+        for (const project of projects) {
+          const viewport = plan.viewports[viewportName];
+          if (!viewport) throw new ValidationError("unknown viewport", [viewportName]);
+          const model = modelForRole(plan, role);
+          const llmCapable =
+            plan.llm.strategy !== "disabled" && model !== null && plan.llm.maxCallsPerWorkPacket > 0;
+          /* An implicit project keeps the historical packet id; named projects extend it. */
+          const packetId = project
+            ? `${scenario.id}-${role}-${viewportName}-${project.name}`
+            : `${scenario.id}-${role}-${viewportName}`;
+          const packet: Omit<WorkPacket, "workPacketHash"> = {
+            version: 1,
+            packetId,
+            runId,
+            planId: plan.id,
+            scenarioId: scenario.id,
+            scenarioTitle: scenario.title,
+            objective: scenario.objective,
+            priority: scenario.priority,
+            role,
+            viewportName,
+            viewport,
+            browser: project ? { ...plan.browser, channel: project.channel } : plan.browser,
+            ...(project ? { projectName: project.name } : {}),
+            targetUrl: plan.target.url,
+            allowedDomains: plan.target.allowedDomains,
+            allowSubdomains: plan.target.allowSubdomains,
+            steps: scenario.steps,
+            expectedOutcome: scenario.expectedOutcome,
+            mode: plan.mode === "agentic" ? "agentic" : llmCapable ? "llm-capable" : "deterministic",
+            runtimeVersion: "mcp-v1",
+            instructions: scenario.instructions,
+            agent: AgentPolicySchema.parse(plan.agent ?? {}),
+            model,
+            llmPolicy: plan.mode === "agentic" ? { ...plan.llm, strategy: "guided" } : plan.llm,
+            contextPolicy: plan.contextLifecycle,
+            safety: plan.safety,
+            timeoutMs: plan.execution.agentTimeoutMs,
+            actionBudget: plan.execution.maxActionsPerAgent,
+            llmCallBudget:
+              plan.mode === "agentic"
+                ? AgentPolicySchema.parse(plan.agent ?? {}).maxLlmCalls
+                : llmCapable
+                  ? plan.llm.maxCallsPerWorkPacket
+                  : 0,
+            artifactDir: `packets/${packetId}`,
+            planHash,
+            riskFlags: scenarioFlags,
+            requiresExplicitRiskApproval: scenarioFlags.length > 0,
+            // Only present for planner-generated scenarios, so instruction-led packet hashes are unchanged.
+            ...(scenario.rationale ? { rationale: scenario.rationale } : {}),
+          };
+          packets.push({ ...packet, workPacketHash: computeWorkPacketHash(packet) });
+        }
       }
     }
   }
@@ -137,6 +147,7 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
     contextLifecycle: plan.contextLifecycle,
     safety: plan.safety,
     browser: plan.browser,
+    ...(plan.browserProjects ? { browserProjects: plan.browserProjects } : {}),
     reporting: plan.reporting,
     testData: plan.testData,
     workPackets: packets,
@@ -208,10 +219,14 @@ function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): 
       max: Math.min(plan.execution.runTimeoutMs, waves * plan.execution.agentTimeoutMs),
     },
     testDataCategories,
-    browserMatrix: [...new Set(packets.map((p) => p.viewportName))].map((viewportName) => ({
-      engine: plan.browser.engine,
-      viewportName,
-      viewport: plan.viewports[viewportName] as { width: number; height: number },
-    })),
+    browserMatrix: [...new Set(packets.map((p) => `${p.projectName ?? ""}|${p.viewportName}`))].map((k) => {
+      const [project, viewportName] = k.split("|") as [string, string];
+      return {
+        engine: plan.browser.engine,
+        ...(project ? { project } : {}),
+        viewportName,
+        viewport: plan.viewports[viewportName] as { width: number; height: number },
+      };
+    }),
   };
 }

@@ -73,7 +73,8 @@ export function buildRunReport(input: BuildReportInput): RunReport {
       modelsConfigured: ep.models,
       modelsInvoked: input.modelsInvoked,
       browserMatrix: ep.summary.browserMatrix.map(
-        (b) => `${b.engine} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`,
+        (b) =>
+          `${b.engine}${b.project ? ` [${b.project}]` : ""} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`,
       ),
       concurrency: ep.concurrency.maxConcurrentWorkPackets,
       safetyPolicy: ep.safety,

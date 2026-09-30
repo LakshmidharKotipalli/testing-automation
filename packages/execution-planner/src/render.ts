@@ -44,7 +44,10 @@ export function renderExecutionPlanReview(
   section("Maximum concurrent browser contexts", [String(s.maxConcurrentBrowserContexts)]);
   section(
     "Browser / viewport matrix",
-    s.browserMatrix.map((b) => `- ${b.engine} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`),
+    s.browserMatrix.map(
+      (b) =>
+        `- ${b.engine}${b.project ? ` [${b.project}]` : ""} ${b.viewportName} ${b.viewport.width}x${b.viewport.height}`,
+    ),
   );
 
   const roleLabel = (r: string) => r.charAt(0).toUpperCase() + r.slice(1);

@@ -48,6 +48,18 @@ export const BrowserConfigSchema = z
   .strict();
 export type BrowserConfig = z.infer<typeof BrowserConfigSchema>;
 
+/**
+ * A named Chrome/Chromium project. Projects expand the matrix (scenario x role x viewport x project).
+ * Firefox and WebKit are deliberately not representable: the schema is strict and has no engine field.
+ */
+export const BrowserProjectSchema = z
+  .object({
+    name: SlugIdSchema,
+    channel: z.enum(["chromium", "chrome"]),
+  })
+  .strict();
+export type BrowserProject = z.infer<typeof BrowserProjectSchema>;
+
 export const ExecutionConfigSchema = z
   .object({
     maxConcurrentAgents: z.number().int().min(1).max(64).default(4),
@@ -310,6 +322,8 @@ export const TestPlanSchema = z
     target: TargetConfigSchema,
     agent: AgentPolicySchema.optional(),
     browser: BrowserConfigSchema.default({}),
+    /** Optional named browser projects. Absent means one implicit project (the `browser` block). */
+    browserProjects: z.array(BrowserProjectSchema).min(1).max(8).optional(),
     execution: ExecutionConfigSchema.default({}),
     models: ModelAssignmentSchema.default({}),
     llm: LlmPolicySchema.default({}),

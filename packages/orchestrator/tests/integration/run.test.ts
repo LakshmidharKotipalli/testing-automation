@@ -105,6 +105,29 @@ describe("approval gate", () => {
   });
 });
 
+describe("browser project matrix", () => {
+  it("runs each project as its own packet with separate directories and persistent profiles", async () => {
+    const plan = TestPlanSchema.parse({
+      ...fixturePlan({ url: server.url }),
+      browser: { persistentProfile: true },
+      browserProjects: [
+        { name: "alpha", channel: "chromium" },
+        { name: "beta", channel: "chromium" },
+      ],
+    });
+    const approved = approve(plan, 2);
+    const out = await tmp("projects");
+    const result = await executeApprovedPlan(approved, { outputDir: out });
+    expect(result.report.execution.packetsPassed).toBe(2);
+    const ids = approved.executionPlan.workPackets.map((p) => p.packetId).sort();
+    expect(ids.map((i) => i.split("-").pop())).toEqual(["alpha", "beta"]);
+    for (const id of ids) {
+      const dir = path.join(out, "packets", id);
+      expect(await readdir(path.join(dir, "mcp-1"))).toContain("profile");
+    }
+  }, 120000);
+});
+
 describe("deterministic parallel execution", () => {
   it("runs a scripted plan with zero LLM calls across 4 concurrent isolated packets", async () => {
     const plan = TestPlanSchema.parse(

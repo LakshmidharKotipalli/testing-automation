@@ -19,6 +19,13 @@ export function validatePlan(plan: TestPlan): ValidationReport {
 
   if (plan.browser.engine !== "chromium")
     errors.push("MCP execution supports Chrome and Chromium only; Firefox and WebKit are not supported");
+  if (plan.browserProjects) {
+    const names = new Set<string>();
+    for (const p of plan.browserProjects) {
+      if (names.has(p.name)) errors.push(`duplicate browser project: ${p.name}`);
+      names.add(p.name);
+    }
+  }
   if (plan.mode === "agentic" && plan.llm.strategy === "fallback-only")
     errors.push("agentic mode requires guided LLM policy");
   const ids = new Set<string>();
