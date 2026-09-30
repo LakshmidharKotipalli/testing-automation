@@ -118,6 +118,7 @@ export function renderExecutionPlanReview(
     line(`  [${id}] ${first.scenarioTitle} (priority ${first.priority})`);
     line(`    Objective: ${first.objective}`);
     line(`    Expected outcome: ${first.expectedOutcome}`);
+    for (const instruction of first.instructions ?? []) line(`    Instruction: ${instruction}`);
     if (options.includeSteps !== false) {
       first.steps.forEach((step, i) => line(`    ${String(i).padStart(2, " ")}. ${describeStep(step)}`));
     }
@@ -131,6 +132,10 @@ export function renderExecutionPlanReview(
         `mode=${p.mode} model=${p.model ? p.model.model : "none"} steps=${p.steps.length} ` +
         `actionBudget=${p.actionBudget} llmCalls=${p.llmCallBudget}${p.requiresExplicitRiskApproval ? " RISK" : ""}`,
     );
+    if (p.agent)
+      line(
+        `    provider=${p.model?.provider ?? "none"} tools=${p.agent.allowedTools.join(",")} maxToolCalls=${p.agent.maxToolCalls} maxLlmCalls=${p.agent.maxLlmCalls} maxTokens=${p.agent.maxTokens}`,
+      );
   }
   line();
 

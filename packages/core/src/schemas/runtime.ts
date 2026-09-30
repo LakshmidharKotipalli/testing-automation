@@ -1,4 +1,15 @@
 import { z } from "zod";
+import { AgentTelemetrySchema, VerdictSchema } from "./agent.js";
+
+const AgentProgressSchema = z
+  .object({
+    telemetry: AgentTelemetrySchema,
+    evidenceIds: z.array(z.string()),
+    remainingToolCalls: z.number().int().nonnegative(),
+    remainingTokens: z.number().int().nonnegative(),
+    verdict: VerdictSchema.optional(),
+  })
+  .strict();
 import {
   AgentRoleSchema,
   IsoDateSchema,
@@ -295,6 +306,7 @@ export const AgentCheckpointSchema = z
       z.object({ type: z.literal("none") }).strict(),
     ]),
     contextUsage: ContextUsageSchema,
+    agentProgress: AgentProgressSchema.optional(),
     actionLedgerReference: z.string(),
     artifactManifestReference: z.string(),
     findingReferences: z.array(z.string()),
@@ -399,6 +411,7 @@ export const HandoffDocumentSchema = z
         fallbackAttemptsRemaining: z.number().int().min(0),
       })
       .strict(),
+    agentProgress: AgentProgressSchema.optional(),
     budgetsRemaining: z
       .object({
         workPacketActionsRemaining: z.number().int().min(0),

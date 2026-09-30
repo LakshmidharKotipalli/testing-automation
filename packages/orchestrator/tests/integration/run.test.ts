@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildApprovedExecutionPlan, recordDecision } from "@browserswarm/approval";
-import { CountingLauncher } from "@browserswarm/browser-tools";
+import { McpBrowserSession, type SessionFactory } from "@browserswarm/mcp-browser";
 import {
   AgentCheckpointSchema,
   TestPlanSchema,
@@ -18,7 +18,7 @@ import {
   startFixtureServer,
   type FixtureServer,
 } from "@browserswarm/test-fixtures";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { executeApprovedPlan } from "../../src/index.js";
 
 let server: FixtureServer;
@@ -65,11 +65,11 @@ describe("approval gate", () => {
   it("starts no browser and makes no request before approval, on rejection, or on tampering", async () => {
     const plan = TestPlanSchema.parse(fixturePlan({ url: server.url }));
     const ep = generateExecutionPlan(plan);
-    const launcher = new CountingLauncher();
+    const sessionFactory = vi.fn<SessionFactory>((options) => new McpBrowserSession(options));
     const before = server.requestCount();
     const out = await tmp("gate");
 
-    await expect(executeApprovedPlan(ep, { outputDir: out, launcher })).rejects.toThrow();
+    await expect(executeApprovedPlan(ep, { outputDir: out, sessionFactory })).rejects.toThrow();
     const rejected = recordDecision({
       executionPlan: ep,
       plan,
@@ -80,25 +80,26 @@ describe("approval gate", () => {
     await expect(
       executeApprovedPlan(
         { version: 1, executionPlan: ep, approvalRecord: rejected, approvedPlanHash: ep.executionPlanHash },
-        { outputDir: out, launcher },
+        { outputDir: out, sessionFactory },
       ),
     ).rejects.toThrow();
 
     const approved = approve(plan);
     const tampered = structuredClone(approved);
     tampered.executionPlan.workPackets[0]!.steps[0] = { action: "navigate", url: "/risky" };
-    await expect(executeApprovedPlan(tampered, { outputDir: out, launcher })).rejects.toThrow(/modified/);
+    await expect(executeApprovedPlan(tampered, { outputDir: out, sessionFactory })).rejects.toThrow(
+      /modified/,
+    );
 
     const edited = TestPlanSchema.parse({
       ...fixturePlan({ url: server.url }),
       name: "Edited after approval",
     });
     await expect(
-      executeApprovedPlan(approved, { outputDir: out, launcher, currentPlan: edited }),
+      executeApprovedPlan(approved, { outputDir: out, sessionFactory, currentPlan: edited }),
     ).rejects.toThrow(/changed after approval/);
 
-    expect(launcher.launches).toBe(0);
-    expect(launcher.contexts).toBe(0);
+    expect(sessionFactory).not.toHaveBeenCalled();
     expect(server.requestCount()).toBe(before);
     expect(await readdir(out)).toEqual([]);
   });
@@ -114,9 +115,9 @@ describe("deterministic parallel execution", () => {
       }),
     );
     const approved = approve(plan, 4);
-    const launcher = new CountingLauncher();
+    const sessionFactory = vi.fn<SessionFactory>((options) => new McpBrowserSession(options));
     const out = await tmp("parallel");
-    const result = await executeApprovedPlan(approved, { outputDir: out, launcher });
+    const result = await executeApprovedPlan(approved, { outputDir: out, sessionFactory });
 
     expect(result.state).toBe("COMPLETED");
     expect(result.exitCode).toBe(0);
@@ -125,8 +126,7 @@ describe("deterministic parallel execution", () => {
     expect(result.report.overview.modelsInvoked).toEqual([]);
     expect(result.report.execution.packetsPassed).toBe(4);
     expect(result.report.execution.maxObservedConcurrency).toBe(4);
-    expect(launcher.launches).toBe(1);
-    expect(launcher.contexts).toBe(4);
+    expect(sessionFactory).toHaveBeenCalledTimes(4);
 
     // Only approved packets ran, each with its own artifact directory.
     const approvedIds = approved.executionPlan.workPackets.map((p) => p.packetId).sort();
@@ -151,7 +151,7 @@ describe("deterministic parallel execution", () => {
         expect((await storage.readText(layout.checkpointHash(seq))).trim()).toBe(cp.integrityHash);
         expect(AgentCheckpointSchema.parse(cp).completedStepIndexes).toHaveLength(seq);
       }
-      expect(await storage.exists(`${layout.screenshotsDir}/step-008-invalid-password-error.png`)).toBe(true);
+      expect(await storage.exists(`packets/${id}/mcp-1/invalid-password-error.png`)).toBe(true);
     }
 
     const events = await EventStore.read(storage, RunLayout.events);
@@ -173,10 +173,10 @@ describe("deterministic parallel execution", () => {
         `cookie-${m}`,
         [
           { action: "navigate", url: `/whoami?m=${m}` },
-          { action: "click", locator: { testId: "set-marker" } },
-          { action: "assert_text_equals", locator: { testId: "cookie-value" }, text: `bs_${m}=1` },
-          { action: "reload" },
-          { action: "assert_text_equals", locator: { testId: "cookie-value" }, text: `bs_${m}=1` },
+          { action: "click", locator: { role: "button", name: "Set marker" } },
+          { action: "assert_text_equals", locator: { role: "status" }, text: `bs_${m}=1` },
+          { action: "navigate", url: `/whoami?m=${m}` },
+          { action: "assert_text_equals", locator: { role: "status" }, text: `bs_${m}=1` },
         ],
         { viewports: ["desktop", "mobile"] },
       );
@@ -187,7 +187,7 @@ describe("deterministic parallel execution", () => {
 });
 
 describe("accessibility steps", () => {
-  it("run_accessibility_scan fails on serious violations with axe evidence; inspect_accessibility_tree captures the tree", async () => {
+  it("blocks unavailable axe checks and captures the accessible tree", async () => {
     const plan = planWith([
       scenario("a11y-bad", [
         { action: "navigate", url: "/a11y" },
@@ -199,10 +199,9 @@ describe("accessibility steps", () => {
     const result = await executeApprovedPlan(approve(plan), { outputDir: out });
     const packet = result.report.packets[0]!;
     expect(packet.stepResults[1]!.status).toBe("passed");
-    expect(packet.stepResults[2]!.status).toBe("failed");
-    expect(packet.stepResults[2]!.evidence.some((e) => e.endsWith("-axe.json"))).toBe(true);
-    const finding = result.report.findings.find((f) => f.scenarioId === "a11y-bad")!;
-    expect(finding.actual).toMatch(/label/);
+    expect(packet.stepResults[2]!.status).toBe("blocked");
+    expect(packet.outcomeReason).toMatch(/unsupported_scripted_check/);
+    expect(result.report.findings).toHaveLength(0);
   });
 });
 
@@ -213,7 +212,7 @@ describe("failures, evidence and policy at runtime", () => {
         { action: "navigate", url: "/" },
         {
           action: "assert_text_contains",
-          locator: { testId: "welcome" },
+          locator: { role: "heading", name: "Fixture Shop" },
           text: "Welcome back, admin",
           timeoutMs: 500,
         },
@@ -226,7 +225,7 @@ describe("failures, evidence and policy at runtime", () => {
       ),
       scenario("external-link", [
         { action: "navigate", url: "/external" },
-        { action: "click", locator: { testId: "external-link" } },
+        { action: "click", locator: { role: "link", name: "Partner site" } },
         { action: "assert_visible", locator: { role: "heading" } },
       ]),
       scenario(
@@ -247,10 +246,12 @@ describe("failures, evidence and policy at runtime", () => {
     expect(finding.probabilistic).toBe(false);
     expect(finding.verificationStatus).toBe("pending");
     expect(finding.expected).toContain("Welcome back, admin");
-    expect(finding.actual).toContain("Welcome to the BrowserSwarm fixture");
+    expect(finding.actual).toContain("Fixture Shop");
     const shot = finding.evidence.find((e) => e.type === "screenshot");
     expect(shot?.path).toBeDefined();
-    await expect(readFile(path.join(out, shot!.path!))).resolves.toBeTruthy();
+    await expect(
+      readFile(path.isAbsolute(shot!.path!) ? shot!.path! : path.join(out, shot!.path!)),
+    ).resolves.toBeTruthy();
     expect(finding.evidence.some((e) => e.type === "dom")).toBe(true);
 
     expect(byScenario["console-error"]!.outcome).toBe("failed");
@@ -260,7 +261,7 @@ describe("failures, evidence and policy at runtime", () => {
 
     expect(byScenario["external-link"]!.outcome).toBe("blocked");
     expect(byScenario["external-link"]!.stepResults[1]!.status).toBe("blocked");
-    expect(byScenario["external-link"]!.outcomeReason).toMatch(/external\.invalid/);
+    expect(byScenario["external-link"]!.outcomeReason).toMatch(/scope_exit/);
 
     expect(byScenario["failed-resource"]!.outcome).toBe("failed");
 
@@ -273,7 +274,7 @@ describe("failures, evidence and policy at runtime", () => {
     const plan = planWith([
       scenario("home", [
         { action: "navigate", url: "/" },
-        { action: "assert_visible", locator: { testId: "welcome" } },
+        { action: "assert_visible", locator: { role: "heading", name: "Fixture Shop" } },
       ]),
     ]);
     const approved = approve(plan);
@@ -289,21 +290,26 @@ describe("failures, evidence and policy at runtime", () => {
   });
 });
 
-describe("context lifecycle (Milestone 1: checkpoint + handoff, then safe block)", () => {
-  it("rotates at the action limit: checkpoint, validated handoff, clean termination, packet blocked", async () => {
-    const plan = planWith([flowScenario(6)], {
+describe("context lifecycle with validated MCP restoration", () => {
+  it("rotates at the action limit and restores a fresh MCP session from the validated handoff", async () => {
+    const flow = flowScenario(6);
+    (flow.steps as unknown[])[11] = {
+      action: "assert_visible",
+      locator: { role: "heading", name: "Flow step 6 of 6" },
+    };
+    const plan = planWith([flow], {
       contextLifecycle: { maxActionsPerAgentInstance: 4, maxHandoffsPerWorkPacket: 3 },
     });
     const out = await tmp("rotation");
     const result = await executeApprovedPlan(approve(plan), { outputDir: out });
     const p = result.report.packets[0]!;
-    expect(p.state).toBe("BLOCKED");
-    expect(p.outcomeReason).toMatch(/replacement_agent_unavailable/);
-    expect(p.handoffs).toHaveLength(1);
+    expect(p.state).toBe("COMPLETED");
+    expect(p.resumeOutcome).toBe("storage_state_restored");
+    expect(p.handoffs).toHaveLength(2);
     expect(p.rotationReasons[0]).toMatch(/action count 4 reached limit 4/);
     expect(p.agentInstances[0]!.state).toBe("TERMINATED");
-    expect(p.stepResults.filter((s) => s.status === "passed")).toHaveLength(4);
-    expect(result.report.execution.handoffCount).toBe(1);
+    expect(p.stepResults.filter((s) => s.status === "passed")).toHaveLength(12);
+    expect(result.report.execution.handoffCount).toBe(2);
 
     const storage = new FilesystemStorage(out);
     const handoff = await loadHandoff(storage, p.packetId, 1);
@@ -325,7 +331,7 @@ describe("context lifecycle (Milestone 1: checkpoint + handoff, then safe block)
       "packet.handoff.validated",
       "packet.handoff.created",
       "agent.terminated",
-      "packet.blocked",
+      "packet.completed",
     ] as const;
     let cursor = -1;
     for (const t of order) {
@@ -336,7 +342,12 @@ describe("context lifecycle (Milestone 1: checkpoint + handoff, then safe block)
   });
 
   it("blocks safely when the handoff limit is exhausted", async () => {
-    const plan = planWith([flowScenario(6)], {
+    const flow = flowScenario(6);
+    (flow.steps as unknown[])[11] = {
+      action: "assert_visible",
+      locator: { role: "heading", name: "Flow step 6 of 6" },
+    };
+    const plan = planWith([flow], {
       contextLifecycle: { maxActionsPerAgentInstance: 4, maxHandoffsPerWorkPacket: 0 },
     });
     const result = await executeApprovedPlan(approve(plan), { outputDir: await tmp("limit") });

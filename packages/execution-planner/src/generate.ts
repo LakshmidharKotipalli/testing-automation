@@ -1,4 +1,5 @@
 import {
+  AgentPolicySchema,
   computeExecutionPlanHash,
   computePlanHash,
   computeRiskPlanHash,
@@ -72,14 +73,22 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
           allowSubdomains: plan.target.allowSubdomains,
           steps: scenario.steps,
           expectedOutcome: scenario.expectedOutcome,
-          mode: llmCapable ? "llm-capable" : "deterministic",
+          mode: plan.mode === "agentic" ? "agentic" : llmCapable ? "llm-capable" : "deterministic",
+          runtimeVersion: "mcp-v1",
+          instructions: scenario.instructions,
+          agent: AgentPolicySchema.parse(plan.agent ?? {}),
           model,
-          llmPolicy: plan.llm,
+          llmPolicy: plan.mode === "agentic" ? { ...plan.llm, strategy: "guided" } : plan.llm,
           contextPolicy: plan.contextLifecycle,
           safety: plan.safety,
           timeoutMs: plan.execution.agentTimeoutMs,
           actionBudget: plan.execution.maxActionsPerAgent,
-          llmCallBudget: llmCapable ? plan.llm.maxCallsPerWorkPacket : 0,
+          llmCallBudget:
+            plan.mode === "agentic"
+              ? AgentPolicySchema.parse(plan.agent ?? {}).maxLlmCalls
+              : llmCapable
+                ? plan.llm.maxCallsPerWorkPacket
+                : 0,
           artifactDir: `packets/${packetId}`,
           planHash,
           riskFlags: scenarioFlags,
@@ -124,7 +133,7 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
       runTimeoutMs: plan.execution.runTimeoutMs,
     },
     models,
-    llm: plan.llm,
+    llm: plan.mode === "agentic" ? { ...plan.llm, strategy: "guided" } : plan.llm,
     contextLifecycle: plan.contextLifecycle,
     safety: plan.safety,
     browser: plan.browser,
@@ -161,7 +170,7 @@ function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): 
   for (const p of packets) {
     const perInstance = cp.maxActionsPerAgentInstance ?? Number.POSITIVE_INFINITY;
     let rotations = cp.enabled ? Math.max(0, Math.ceil(p.steps.length / perInstance) - 1) : 0;
-    if (cp.enabled && p.mode === "llm-capable")
+    if (cp.enabled && p.mode !== "deterministic")
       rotations = Math.max(rotations, Math.min(1, cp.maxHandoffsPerWorkPacket));
     rotations = Math.min(rotations, cp.maxHandoffsPerWorkPacket);
     maxInstances += 1 + rotations;
@@ -182,12 +191,15 @@ function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): 
     scenarioCount: plan.scenarios.length,
     workPacketCount: packets.length,
     deterministicPackets: packets.filter((p) => p.mode === "deterministic").length,
-    llmCapablePackets: packets.filter((p) => p.mode === "llm-capable").length,
+    llmCapablePackets: packets.filter((p) => p.mode !== "deterministic").length,
     maxConcurrentWorkPackets: concurrency,
     maxConcurrentBrowserContexts: concurrency,
     maxBrowserActions: packets.reduce((n, p) => n + p.actionBudget, 0),
     maxLlmCalls,
-    estimatedMaxTokens: maxLlmCalls * plan.llm.maxTokensPerCall,
+    estimatedMaxTokens: packets.reduce(
+      (n, p) => n + (p.mode === "agentic" ? p.agent!.maxTokens : p.llmCallBudget * plan.llm.maxTokensPerCall),
+      0,
+    ),
     estimatedMaxAgentInstances: maxInstances,
     estimatedContextHandoffs: handoffs,
     estimatedCheckpoints: checkpoints,

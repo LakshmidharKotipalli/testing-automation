@@ -9,7 +9,7 @@ import {
 } from "@browserswarm/core";
 import { canonicalize, type Redactor } from "@browserswarm/shared";
 import { checkUrl } from "./domains.js";
-import { classifyStep } from "./risk.js";
+import { isCategoryAllowed, classifyStep } from "./risk.js";
 
 export interface PolicyDecision {
   allowed: boolean;
@@ -53,6 +53,38 @@ export function evaluatePlanPolicy(plan: TestPlan): PlanPolicyResult {
     }
     if (scenario.roles.includes("verifier")) {
       errors.push(`scenario ${scenario.id}: role verifier is assigned by the framework, not by scenarios`);
+    }
+    if (plan.mode === "agentic") {
+      const elevated = plan.agent?.allowedTools ?? [];
+      const categories = [
+        ...(elevated.includes("evaluate") ? ["tool_evaluate" as const] : []),
+        ...(elevated.includes("admin") ? ["tool_admin" as const] : []),
+        ...(
+          [
+            "account_creation",
+            "purchase",
+            "payment",
+            "file_upload",
+            "file_download",
+            "deletion",
+            "password_change",
+            "invitation",
+            "social_posting",
+            "email_sms_sending",
+            "data_modification",
+            "irreversible",
+          ] as const
+        ).filter((c) => isCategoryAllowed(c, plan.safety)),
+      ];
+      for (const category of categories)
+        riskFlags.push({
+          scenarioId: scenario.id,
+          stepIndex: 0,
+          action: "agentic",
+          category,
+          reason: `Agentic permission: ${category}`,
+          allowedByPolicy: true,
+        });
     }
     scenario.steps.forEach((step, index) => {
       for (const flag of classifyStep(step, index, {

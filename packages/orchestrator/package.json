@@ -24,7 +24,10 @@
     "@browserswarm/reporters": "workspace:*",
     "@browserswarm/shared": "workspace:*",
     "@browserswarm/storage": "workspace:*",
-    "playwright": "1.56.1"
+    "@browserswarm/mcp-browser": "workspace:*",
+    "@browserswarm/mcp-gateway": "workspace:*",
+    "@browserswarm/llm-agent": "workspace:*",
+    "@browserswarm/opencode-adapter": "workspace:*"
   },
   "devDependencies": {
     "@browserswarm/execution-planner": "workspace:*",

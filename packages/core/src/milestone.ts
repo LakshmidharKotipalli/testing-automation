@@ -7,9 +7,8 @@ export const IMPLEMENTED_MILESTONE = 1;
 export const DEFERRED_ACTIONS: Partial<Record<StepAction, number>> = {};
 
 export const MILESTONE_LIMITATIONS: string[] = [
-  "Milestone 1: role-specific checks beyond the approved steps (overflow/screenshot matrix for responsive, visual review) arrive in Milestone 2; every role executes its approved scripted steps deterministically. run_accessibility_scan (axe-core) and inspect_accessibility_tree are available.",
-  "Milestone 1: LLM fallback is not wired into execution; llm-capable packets run deterministically with zero LLM calls.",
-  "Milestone 1: automatic replacement agents arrive in Milestone 3; when a lifecycle limit is reached the packet is checkpointed, a handoff is written, and the packet is BLOCKED (never silently continued).",
-  "Milestone 1: HTML and JUnit reports arrive in Milestone 2; JSON and Markdown are generated.",
-  "Milestone 1: verifier work packets arrive in Milestone 4; findings at or above the verification threshold are marked verification 'pending'.",
+  "Execution uses guarded Playwright MCP. Unsupported scripted checks and locators are BLOCKED; axe and layout evaluation require capabilities not enabled by default.",
+  "Agentic packets require OpenRouter native tool calls or a verified isolated OpenCode adapter. Missing usage, configuration isolation or restoration prevents execution or resume.",
+  "HTML and JUnit reports are deferred; JSON and Markdown are generated.",
+  "Conditional verifier packets and MCP discovery are Phase 2 capabilities; verification currently remains pending.",
 ];

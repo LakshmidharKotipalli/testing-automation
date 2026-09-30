@@ -15,6 +15,7 @@ import {
   SafetyPolicySchema,
   TestDataSchema,
 } from "./plan.js";
+import { AgentPolicySchema } from "./agent.js";
 import { TestStepSchema } from "./steps.js";
 
 export const RiskCategorySchema = z.enum([
@@ -31,6 +32,8 @@ export const RiskCategorySchema = z.enum([
   "data_modification",
   "external_navigation",
   "authentication",
+  "tool_evaluate",
+  "tool_admin",
   "irreversible",
 ]);
 export type RiskCategory = z.infer<typeof RiskCategorySchema>;
@@ -47,7 +50,7 @@ export const RiskFlagSchema = z
   .strict();
 export type RiskFlag = z.infer<typeof RiskFlagSchema>;
 
-export const PacketModeSchema = z.enum(["deterministic", "llm-capable"]);
+export const PacketModeSchema = z.enum(["deterministic", "llm-capable", "agentic"]);
 
 export const WorkPacketSchema = z
   .object({
@@ -67,7 +70,10 @@ export const WorkPacketSchema = z
     allowedDomains: z.array(z.string()).min(1),
     allowSubdomains: z.boolean(),
     /** Ordered steps exactly as approved. Test-data templates stay unresolved so packets never hold secrets. */
-    steps: z.array(TestStepSchema).min(1),
+    steps: z.array(TestStepSchema),
+    instructions: z.array(z.string()).optional(),
+    agent: AgentPolicySchema.optional(),
+    runtimeVersion: z.literal("mcp-v1").optional(),
     expectedOutcome: z.string(),
     mode: PacketModeSchema,
     model: ModelRefSchema.nullable(),
@@ -120,7 +126,7 @@ export const ExecutionPlanSchema = z
     planId: z.string(),
     planName: z.string(),
     planHash: Sha256Schema,
-    mode: z.enum(["scripted", "llm-assisted"]),
+    mode: z.enum(["scripted", "llm-assisted", "agentic"]),
     target: z
       .object({
         url: z.string().url(),

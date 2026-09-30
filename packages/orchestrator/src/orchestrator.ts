@@ -1,5 +1,7 @@
 import { verifyApprovedPlan, type VerifiedApprovedPlan } from "@browserswarm/approval";
-import { PlaywrightLauncher, type BrowserHandle, type BrowserLauncher } from "@browserswarm/browser-tools";
+import type { BrowserLauncher } from "@browserswarm/browser-tools";
+import type { SessionFactory } from "@browserswarm/mcp-browser";
+import type { ChatClient } from "@browserswarm/opencode-adapter";
 import {
   runStateMachine,
   TrackedState,
@@ -22,7 +24,10 @@ import { Semaphore } from "./semaphore.js";
 export interface RunOptions {
   /** Run directory (artifacts/{runId} by default). */
   outputDir: string;
+  /** @deprecated Ignored; browser sessions are packet owned. */
   launcher?: BrowserLauncher;
+  sessionFactory?: SessionFactory;
+  modelClient?: ChatClient;
   signal?: AbortSignal;
   clock?: Clock;
   /** When supplied, approval is also checked against the current plan file (catches later edits). */
@@ -56,6 +61,8 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
     options.currentPlan ? { currentPlan: options.currentPlan } : {},
   );
   const ep = approved.executionPlan;
+  if (ep.workPackets.some((p) => p.runtimeVersion !== "mcp-v1"))
+    throw new Error("Execution runtime changed: preview and approve again for MCP execution");
   const clock = options.clock ?? systemClock;
   const testData = resolveTestData(ep.testData, ep.runId, options.env ?? process.env);
   // Test data and env-file secrets (the LLM API key) are masked in every artifact.
@@ -133,8 +140,6 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
     data: { packets: ep.workPackets.length, concurrency: ep.concurrency.maxConcurrentWorkPackets },
   });
 
-  const launcher = options.launcher ?? new PlaywrightLauncher();
-  let browser: BrowserHandle | undefined;
   const results: PacketRunResult[] = [];
   const packetsById = new Map<string, PacketReport>();
   let infraError: string | undefined;
@@ -142,14 +147,15 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
   let maxActive = 0;
 
   try {
-    browser = await launcher.launch(ep.browser);
     const semaphore = new Semaphore(ep.concurrency.maxConcurrentWorkPackets);
     const runners = ep.workPackets.map(
       (packet) =>
         new PacketRunner(packet, {
           storage,
           events,
-          browser: browser as BrowserHandle,
+          sessionFactory: options.sessionFactory,
+          modelClient: options.modelClient,
+          env: options.env,
           clock,
           approvedExecutionPlanHash: ep.executionPlanHash,
           riskApproved: approved.approvalRecord.riskAccepted,
@@ -186,7 +192,6 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
     infraError = (error as Error).message;
   } finally {
     clearTimeout(runTimer);
-    await browser?.close().catch(() => undefined);
   }
 
   let finalState: RunState;
@@ -223,9 +228,9 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
     generatedAt: endedAt,
     contextWarnings: results.reduce((n, r) => n + r.contextWarnings, 0),
     checkpointCount: results.reduce((n, r) => n + r.checkpoints, 0),
-    llmCalls: 0,
-    llmTokens: 0,
-    modelsInvoked: [],
+    llmCalls: packets.reduce((n, p) => n + (p.telemetry?.llmCalls ?? 0), 0),
+    llmTokens: packets.reduce((n, p) => n + (p.telemetry?.tokens ?? 0), 0),
+    modelsInvoked: [...new Set(packets.filter((p) => (p.telemetry?.llmCalls ?? 0) > 0).map((p) => p.model!))],
     maxObservedConcurrency: maxActive,
     packetsBlockedByHandoffLimit: results.filter((r) => r.blockedByHandoffLimit).length,
     packetsBlockedByCheckpointFailure: results.filter((r) => r.blockedByCheckpointFailure).length,

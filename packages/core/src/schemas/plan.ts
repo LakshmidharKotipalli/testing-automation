@@ -10,6 +10,7 @@ import {
   SlugIdSchema,
   ViewportSizeSchema,
 } from "./common.js";
+import { AgentPolicySchema } from "./agent.js";
 import { TestStepSchema } from "./steps.js";
 
 export const DomainSchema = z
@@ -34,6 +35,8 @@ export const BrowserEngineSchema = z.enum(["chromium", "firefox", "webkit"]);
 export const BrowserConfigSchema = z
   .object({
     engine: BrowserEngineSchema.default("chromium"),
+    channel: z.enum(["chromium", "chrome"]).optional(),
+    persistentProfile: z.boolean().optional(),
     headless: z.boolean().default(true),
     locale: z.string().default("en-US"),
     timezoneId: z.string().default("UTC"),
@@ -58,8 +61,9 @@ export type ExecutionConfig = z.infer<typeof ExecutionConfigSchema>;
 
 export const ModelRefSchema = z
   .object({
-    provider: z.enum(["opencode-cli", "mock"]),
+    provider: z.enum(["opencode-cli", "mock", "openrouter", "opencode-agent"]),
     model: z.string().min(1),
+    baseUrl: z.string().url().optional(),
     command: z.string().min(1).optional(),
     argsTemplate: z.array(z.string()).optional(),
     timeoutMs: z.number().int().min(1000).max(600_000).optional(),
@@ -197,7 +201,8 @@ export const ScenarioSchema = z
     viewports: z.array(z.string().min(1)).min(1),
     expectedOutcome: z.string().min(1).max(1000),
     tags: z.array(z.string()).optional(),
-    steps: z.array(TestStepSchema).min(1),
+    steps: z.array(TestStepSchema).default([]),
+    instructions: z.array(z.string().min(1).max(2000)).optional(),
     // Planning metadata. All optional (no defaults) so plans without it keep their exact plan hash.
     source: ScenarioSourceSchema.optional(),
     safetyClass: ScenarioSafetyClassSchema.optional(),
@@ -301,8 +306,9 @@ export const TestPlanSchema = z
     id: SlugIdSchema,
     name: z.string().min(1).max(200),
     description: z.string().max(2000).optional(),
-    mode: z.enum(["scripted", "llm-assisted"]).default("scripted"),
+    mode: z.enum(["scripted", "llm-assisted", "agentic"]).default("scripted"),
     target: TargetConfigSchema,
+    agent: AgentPolicySchema.optional(),
     browser: BrowserConfigSchema.default({}),
     execution: ExecutionConfigSchema.default({}),
     models: ModelAssignmentSchema.default({}),

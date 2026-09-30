@@ -27,6 +27,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@browserswarm/test-fixtures": "workspace:*"
+    "@browserswarm/test-fixtures": "workspace:*",
+    "@browserswarm/approval": "workspace:*"
   }
 }

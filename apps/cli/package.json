@@ -24,6 +24,7 @@
     "@browserswarm/core": "workspace:*",
     "@browserswarm/discovery": "workspace:*",
     "@browserswarm/execution-planner": "workspace:*",
+    "@browserswarm/mcp-browser": "workspace:*",
     "@browserswarm/opencode-adapter": "workspace:*",
     "@browserswarm/orchestrator": "workspace:*",
     "@browserswarm/plan-compiler": "workspace:*",

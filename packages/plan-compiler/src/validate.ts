@@ -17,10 +17,25 @@ export function validatePlan(plan: TestPlan): ValidationReport {
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  if (plan.browser.engine !== "chromium")
+    errors.push("MCP execution supports Chrome and Chromium only; Firefox and WebKit are not supported");
+  if (plan.mode === "agentic" && plan.llm.strategy === "fallback-only")
+    errors.push("agentic mode requires guided LLM policy");
   const ids = new Set<string>();
   for (const scenario of plan.scenarios) {
     if (ids.has(scenario.id)) errors.push(`duplicate scenario id: ${scenario.id}`);
     ids.add(scenario.id);
+    if (plan.mode !== "agentic" && scenario.steps.length === 0)
+      errors.push(`scenario ${scenario.id}: scripted mode requires steps`);
+    if (plan.mode === "agentic") {
+      for (const role of scenario.roles) {
+        const model = plan.models.overrides[role] ?? plan.models.default;
+        if (!model || !["openrouter", "opencode-agent", "mock"].includes(model.provider))
+          errors.push(
+            `scenario ${scenario.id}: agentic execution requires openrouter, opencode-agent or mock model for ${role}`,
+          );
+      }
+    }
     for (const vp of scenario.viewports) {
       if (!plan.viewports[vp]) errors.push(`scenario ${scenario.id}: unknown viewport "${vp}"`);
     }

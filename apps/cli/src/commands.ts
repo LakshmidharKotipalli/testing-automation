@@ -1,3 +1,4 @@
+import { applyModelOptions, type ModelOptions } from "./model-options.js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -11,6 +12,7 @@ import {
 } from "@browserswarm/approval";
 import {
   BrowserSwarmError,
+  computePlanHash,
   ExecutionPlanSchema,
   formatZodIssues,
   runStateMachine,
@@ -65,8 +67,9 @@ function reportValidation(io: CliIO, errors: string[], warnings: string[]): void
 }
 
 /** Loads a plan file, resolving the target website from the central .env setting when the plan omits it. */
-async function loadPlan(io: CliIO, file: string) {
+async function loadPlan(io: CliIO, file: string, opts: ModelOptions = {}) {
   const loaded = await loadPlanFile(abs(io, file), { env: io.env });
+  loaded.plan = await applyModelOptions(loaded.plan, opts, io.env, io.cwd);
   if (loaded.targetSource === "env") {
     out(io, `Target: ${loaded.plan.target.url} (from ${ENV.TARGET_URL} in .env)`);
   }
@@ -75,14 +78,20 @@ async function loadPlan(io: CliIO, file: string) {
 
 async function loadPlanFromOptions(
   io: CliIO,
-  opts: { plan?: string; prompt?: string; promptText?: string; url?: string; allowedDomain?: string[] },
+  opts: ModelOptions & {
+    plan?: string;
+    prompt?: string;
+    promptText?: string;
+    url?: string;
+    allowedDomain?: string[];
+  },
 ): Promise<{
   plan: TestPlan;
   promptText?: string;
   rawPlanText?: string;
 }> {
   if (opts.plan) {
-    const loaded = await loadPlan(io, opts.plan);
+    const loaded = await loadPlan(io, opts.plan, opts);
     return { plan: loaded.plan, rawPlanText: loaded.rawText };
   }
   if (opts.prompt || opts.promptText !== undefined) {
@@ -137,8 +146,8 @@ export async function cmdPlan(
   return report.valid ? EXIT.OK : EXIT.INVALID;
 }
 
-export async function cmdValidate(io: CliIO, opts: { plan: string }): Promise<number> {
-  const { plan } = await loadPlan(io, opts.plan);
+export async function cmdValidate(io: CliIO, opts: ModelOptions & { plan: string }): Promise<number> {
+  const { plan } = await loadPlan(io, opts.plan, opts);
   const report = validatePlan(plan);
   reportValidation(io, report.errors, report.warnings);
   out(
@@ -158,9 +167,9 @@ export async function cmdValidate(io: CliIO, opts: { plan: string }): Promise<nu
 /** `preview`: generate the exact execution plan and print the approval review. Starts no browser. */
 export async function cmdPreview(
   io: CliIO,
-  opts: { plan: string; parallel?: number; write?: string; runId?: string; profile?: string },
+  opts: ModelOptions & { plan: string; parallel?: number; write?: string; runId?: string; profile?: string },
 ): Promise<number> {
-  const { plan } = await loadPlan(io, opts.plan);
+  const { plan } = await loadPlan(io, opts.plan, opts);
   const profile = opts.profile ? await checkedProfile(io, plan, opts.profile) : undefined;
   const ep = generateExecutionPlan(plan, {
     ...(opts.parallel ? { parallel: opts.parallel } : {}),
@@ -224,12 +233,18 @@ function operatorName(io: CliIO, opts: DecisionOptions): string {
 /** `approve`: bind an approval record to the exact execution plan and write the immutable approved plan. */
 export async function cmdApprove(
   io: CliIO,
-  opts: DecisionOptions & { plan: string; executionPlan: string; output?: string; profile?: string },
+  opts: ModelOptions &
+    DecisionOptions & { plan: string; executionPlan: string; output?: string; profile?: string },
 ): Promise<number> {
-  const { plan } = await loadPlan(io, opts.plan);
+  const { plan } = await loadPlan(io, opts.plan, opts);
   const profile = opts.profile ? await checkedProfile(io, plan, opts.profile) : undefined;
   const epPath = abs(io, opts.executionPlan);
   const ep = await readExecutionPlan(epPath);
+  if (ep.planHash !== computePlanHash(plan))
+    throw new BrowserSwarmError(
+      "APPROVAL_INVALIDATED",
+      "the resolved plan and overrides changed after the execution plan was generated; run preview again",
+    );
   out(io, profile ? renderAutonomousReview(profile, plan, ep) : renderExecutionPlanReview(ep));
   const d = await decide(io, ep, opts);
   const dir = path.dirname(epPath);
@@ -308,7 +323,7 @@ async function finishDecision(
   return EXIT.INVALID;
 }
 
-export interface RunCommandOptions extends DecisionOptions, ScopeFlags {
+export interface RunCommandOptions extends DecisionOptions, ScopeFlags, ModelOptions {
   approvedPlan?: string;
   plan?: string;
   prompt?: string;
@@ -318,7 +333,7 @@ export interface RunCommandOptions extends DecisionOptions, ScopeFlags {
   discoveryConfig?: string;
   /** Test seams (not CLI flags). */
   discoveryLauncher?: AutonomousOptions["discoveryLauncher"];
-  runLauncher?: AutonomousOptions["runLauncher"];
+  runSessionFactory?: AutonomousOptions["runSessionFactory"];
   url?: string;
   allowedDomain?: string[];
   parallel?: number;
@@ -332,7 +347,35 @@ export interface RunCommandOptions extends DecisionOptions, ScopeFlags {
 export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortSignal): Promise<number> {
   if (opts.approvedPlan) {
     const raw = await readJsonFile(abs(io, opts.approvedPlan));
-    const currentPlan = opts.plan ? (await loadPlan(io, opts.plan)).plan : undefined;
+    if (opts.provider || opts.model || opts.headed || opts.persistentProfile || opts.modelProfile)
+      throw new Error("Execution options cannot change an approved plan; preview and approve again");
+    const currentPlan = opts.plan ? (await loadPlan(io, opts.plan, opts)).plan : undefined;
+    const executionPlan = (
+      raw as {
+        executionPlan?: {
+          models?: Record<string, { provider?: string; model?: string; baseUrl?: string } | null>;
+          browser?: { channel?: string };
+        };
+      }
+    ).executionPlan;
+    const expectedProvider =
+      io.env.BROWSERSWARM_LLM_PROVIDER === "opencode"
+        ? "opencode-agent"
+        : io.env.BROWSERSWARM_LLM_PROVIDER === "openrouter"
+          ? "openrouter"
+          : undefined;
+    const configuredModel = executionPlan?.models && Object.values(executionPlan.models).find(Boolean);
+    if (
+      (expectedProvider && configuredModel?.provider !== expectedProvider) ||
+      (io.env.BROWSERSWARM_LLM_MODEL && configuredModel?.model !== io.env.BROWSERSWARM_LLM_MODEL) ||
+      (io.env.BROWSERSWARM_LLM_BASE_URL && configuredModel?.baseUrl !== io.env.BROWSERSWARM_LLM_BASE_URL) ||
+      (io.env.BROWSERSWARM_BROWSER_CHANNEL &&
+        executionPlan?.browser?.channel !== io.env.BROWSERSWARM_BROWSER_CHANNEL)
+    )
+      throw new BrowserSwarmError(
+        "APPROVAL_INVALIDATED",
+        "environment model or browser overrides differ from the approved plan; preview and approve again",
+      );
     // The approved plan is bound to one website. If .env now points elsewhere, require a fresh approval
     // instead of silently testing the old site.
     const approvedUrl = (raw as { executionPlan?: { target?: { url?: string } } }).executionPlan?.target?.url;
@@ -349,7 +392,7 @@ export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortS
       outputDir,
       env: io.env,
       ...(currentPlan ? { currentPlan } : {}),
-      ...(opts.runLauncher ? { launcher: opts.runLauncher } : {}),
+      ...(opts.runSessionFactory ? { sessionFactory: opts.runSessionFactory } : {}),
       ...(signal ? { signal } : {}),
     });
     printRunSummary(io, result);
@@ -393,12 +436,15 @@ export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortS
     ),
   );
   history.push({ state: "DRAFT", at: new Date().toISOString() });
-  const { plan, rawPlanText } = await loadPlanFromOptions(io, {
+  const loaded = await loadPlanFromOptions(io, {
     ...(opts.plan ? { plan: opts.plan } : {}),
     ...(promptText !== undefined && !opts.plan ? { promptText } : {}),
     ...(opts.url ? { url: opts.url } : {}),
     ...(opts.allowedDomain ? { allowedDomain: opts.allowedDomain } : {}),
   });
+  let { plan } = loaded;
+  const rawPlanText = loaded.rawPlanText;
+  plan = await applyModelOptions(plan, opts, io.env, io.cwd);
   state.to("COMPILED");
   const validation = validatePlan(plan);
   reportValidation(io, validation.errors, validation.warnings);
@@ -452,7 +498,7 @@ export async function cmdRun(io: CliIO, opts: RunCommandOptions, signal?: AbortS
     currentPlan: plan,
     env: io.env,
     priorStateHistory: history,
-    ...(opts.runLauncher ? { launcher: opts.runLauncher } : {}),
+    ...(opts.runSessionFactory ? { sessionFactory: opts.runSessionFactory } : {}),
     ...(signal ? { signal } : {}),
   });
   printRunSummary(io, result);

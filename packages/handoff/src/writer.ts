@@ -120,7 +120,7 @@ export class DeterministicHandoffWriter implements HandoffWriter {
     const obsLimit = policy.includeRecentObservationCount;
     const nextStep = p.steps[cp.currentStepIndex];
     const status: HandoffDocument["executionProgress"]["status"] =
-      cp.remainingStepIndexes.length === 0
+      p.mode !== "agentic" && cp.remainingStepIndexes.length === 0
         ? "completed"
         : cp.workPacketState === "BLOCKED"
           ? "blocked"
@@ -200,6 +200,7 @@ export class DeterministicHandoffWriter implements HandoffWriter {
         contextUsage: cp.contextUsage,
         fallbackAttemptsRemaining: Math.max(0, p.llmCallBudget - context.llmCallsUsedInPacket),
       },
+      ...(cp.agentProgress ? { agentProgress: cp.agentProgress } : {}),
       budgetsRemaining: {
         workPacketActionsRemaining: Math.max(0, p.actionBudget - context.actionsUsedInPacket),
         workPacketTimeMsRemaining: Math.max(0, Math.round(p.timeoutMs - context.elapsedMsInPacket)),
@@ -234,17 +235,21 @@ export class DeterministicHandoffWriter implements HandoffWriter {
           `Stop if navigation leaves ${p.allowedDomains.join(", ")}.`,
           "Stop if any action is blocked by the safety policy.",
           "Stop when the action, time or LLM budget is exhausted.",
-          "Stop after all remaining approved steps are complete.",
+          p.mode === "agentic"
+            ? "Finish through report_verdict with fresh captured evidence for the approved outcome."
+            : "Stop after all remaining approved steps are complete.",
         ],
         policyReminders: [
-          "Execute only the approved steps of this work packet; do not add tests or change expected outcomes.",
+          p.mode === "agentic"
+            ? "Follow the approved mission and guidance; do not change expected outcomes."
+            : "Execute only the approved steps of this work packet; do not add tests or change expected outcomes.",
           "Do not create accounts, purchase, upload/download, send messages or perform destructive actions unless the packet's approved risk flags allow it.",
           "Never place secrets, cookies or credentials in notes, findings or model context.",
         ],
       },
       artifactReferences: {
         ...(context.latestScreenshot ? { latestScreenshot: context.latestScreenshot } : {}),
-        ...(p.browser.trace ? { trace: "trace/trace.zip" } : {}),
+
         actionLedger: "actions.ndjson",
         stepResults: "step-results.json",
         consoleLog: "console.json",

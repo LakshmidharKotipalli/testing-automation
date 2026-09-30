@@ -1,0 +1,28 @@
+{
+  "name": "@browserswarm/mcp-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.25.2",
+    "@browserswarm/mcp-browser": "workspace:*",
+    "@browserswarm/core": "workspace:*",
+    "@browserswarm/shared": "workspace:*",
+    "@browserswarm/policy-engine": "workspace:*",
+    "ajv": "^8.17.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@browserswarm/execution-planner": "workspace:*"
+  }
+}
