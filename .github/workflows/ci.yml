@@ -18,9 +18,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # Playwright MCP 0.0.68 bundles its own Playwright; install the matching Chromium revision.
+      - run: node "$(dirname "$(pnpm --filter @browserswarm/mcp-browser exec node -p 'require.resolve("playwright/package.json",{paths:[require.resolve("@playwright/mcp/package.json")]})')")/cli.js" install --with-deps chromium
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm test # includes the real-MCP fixture integration project
       - run: pnpm build
       - uses: actions/upload-artifact@v4
         if: failure()

@@ -69,3 +69,11 @@ Milestone 1; wiring fallback into execution, verifier packets and LLM resume pro
 
 `MockLLMClient` returns scripted responses and can simulate growing context, small context windows,
 malformed output and process failures. See `examples/long-running-agent-handoff/mock-context-rotation.json`.
+
+## Agentic execution status
+
+Agentic packets run through the guarded MCP gateway. OpenRouter is the supported real
+backend. OpenCode (`opencode-agent`) fails closed before launching a packet browser
+because OpenCode 2.0.19 does not expose its effective merged configuration, so
+built-in tool denial and MCP isolation cannot be verified. See
+[mcp-migration-notes.md](mcp-migration-notes.md).

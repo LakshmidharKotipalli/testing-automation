@@ -57,3 +57,27 @@ require integration validation.
 
 Phase 2 starts only after the Phase 1 acceptance gate passes. Subsequent sections
 will record implementation checks and any unverified capabilities.
+
+## Phase 1 implementation status (2026-09-30)
+
+Browser execution is now model -> guarded gateway -> Playwright MCP 0.0.68 -> browser.
+Each packet owns one MCP server, a private artifact directory and isolated state.
+Gates at commit b92efa2: lint, typecheck, test (225 passing) and build all pass.
+
+Observed facts:
+
+- MCP 0.0.68 writes traces as `.trace` files under `traces/`, not a ZIP.
+- Scripted steps without a gateway equivalent (for example axe checks) return BLOCKED.
+- Cross-domain redirect blocking, challenge pages, read-only POST blocking and
+  cancellation were verified against real MCP sessions.
+
+Known limitations and unverified items:
+
+- **OpenCode real execution is unavailable.** The installed CLI (2.0.19) exposes
+  `/api/config` as source descriptors, not the effective merged configuration. The
+  preflight therefore fails closed before any packet browser starts. Effective
+  permission, tool and config isolation are unverified; stdin delivery and JSON
+  event usage parsing are covered only by fake-process tests.
+- OpenRouter is covered by mock HTTP tests only; no live provider call was made.
+- Phase 2 (discovery migration, browser project matrix, guarded replay, verifier
+  packets) has not started. Discovery still uses the legacy direct-Playwright path.
