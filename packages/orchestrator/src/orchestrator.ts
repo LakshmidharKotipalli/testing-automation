@@ -6,6 +6,8 @@ import {
   TrackedState,
   type AgentEvent,
   type Finding,
+  type VerificationResult,
+  type WorkPacket,
   type PacketReport,
   type RunMetadata,
   type RunReport,
@@ -15,7 +17,7 @@ import {
 import type { ReplacementAgentFactory } from "@browserswarm/handoff";
 import { buildTestDataRedactor, resolveTestData } from "@browserswarm/policy-engine";
 import { buildRunReport, writeReports } from "@browserswarm/reporters";
-import { envSecrets, stableStringify, systemClock, type Clock } from "@browserswarm/shared";
+import { envSecrets, newId, stableStringify, systemClock, type Clock } from "@browserswarm/shared";
 import { EventStore, FilesystemStorage, RunLayout, type StorageAdapter } from "@browserswarm/storage";
 import { PacketRunner, type PacketRunResult } from "./packet-runner.js";
 import { Semaphore } from "./semaphore.js";
@@ -138,6 +140,10 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
   });
 
   const results: PacketRunResult[] = [];
+  const verifierReports: PacketReport[] = [];
+  const verifications: VerificationResult[] = [];
+  const verifierBySource = new Map((ep.verifierPackets ?? []).map((v) => [v.verifierOf!, v]));
+  let verifiersRun = 0;
   const packetsById = new Map<string, PacketReport>();
   let infraError: string | undefined;
   let active = 0;
@@ -145,24 +151,24 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
 
   try {
     const semaphore = new Semaphore(ep.concurrency.maxConcurrentWorkPackets);
-    const runners = ep.workPackets.map(
-      (packet) =>
-        new PacketRunner(packet, {
-          storage,
-          events,
-          sessionFactory: options.sessionFactory,
-          modelClient: options.modelClient,
-          env: options.env,
-          clock,
-          approvedExecutionPlanHash: ep.executionPlanHash,
-          riskApproved: approved.approvalRecord.riskAccepted,
-          testData,
-          redactor,
-          signal: controller.signal,
-          verifySeverityAtOrAbove: ep.reporting.verifySeverityAtOrAbove,
-          ...(options.replacementFactory ? { replacementFactory: options.replacementFactory } : {}),
-        }),
-    );
+    const newRunner = (packet: WorkPacket, verificationClaims?: unknown) =>
+      new PacketRunner(packet, {
+        storage,
+        events,
+        sessionFactory: options.sessionFactory,
+        modelClient: options.modelClient,
+        env: options.env,
+        clock,
+        approvedExecutionPlanHash: ep.executionPlanHash,
+        riskApproved: approved.approvalRecord.riskAccepted,
+        testData,
+        redactor,
+        signal: controller.signal,
+        verifySeverityAtOrAbove: ep.reporting.verifySeverityAtOrAbove,
+        ...(verificationClaims ? { verificationClaims } : {}),
+        ...(options.replacementFactory ? { replacementFactory: options.replacementFactory } : {}),
+      });
+    const runners = ep.workPackets.map((packet) => newRunner(packet));
     for (const runner of runners) await runner.queue();
     await Promise.all(
       runners.map((runner) =>
@@ -178,6 +184,40 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
               (result.report.outcome === "failed" || result.report.outcome === "error")
             ) {
               abortFrom(`failFast: ${result.report.packetId} ${result.report.outcome}`);
+            }
+            /* The reserved verifier runs only when this packet has findings at or above the threshold,
+               in a fresh session, and never for a verifier packet. */
+            const verifier = verifierBySource.get(result.report.packetId);
+            const eligible = result.findings.filter((f) => f.verificationStatus === "pending");
+            if (verifier && eligible.length && !controller.signal.aborted) {
+              verifiersRun++;
+              events.emit({
+                type: "verification.queued",
+                packetId: verifier.packetId,
+                data: { sourcePacketId: verifier.verifierOf, findingIds: eligible.map((f) => f.findingId) },
+              });
+              const claims = eligible.map((f) => ({
+                findingId: f.findingId,
+                title: f.title,
+                stepIndex: f.stepIndex,
+                expected: f.expected,
+                actual: f.actual,
+                reproductionSteps: f.reproductionSteps,
+              }));
+              const vRunner = newRunner(verifier, claims);
+              await vRunner.queue();
+              const vResult = await vRunner.run();
+              verifierReports.push(vResult.report);
+              for (const finding of eligible) {
+                const vr = verificationFor(finding, verifier, vResult, clock.iso());
+                verifications.push(vr);
+                Object.assign(finding, { verificationStatus: vr.status, status: vr.status });
+                events.emit({
+                  type: "verification.completed",
+                  packetId: verifier.packetId,
+                  data: { findingId: finding.findingId, status: vr.status },
+                });
+              }
             }
           } finally {
             active--;
@@ -220,6 +260,15 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
     runState: finalState,
     packets,
     findings,
+    verification: ep.verifierPackets
+      ? {
+          reserved: ep.verifierPackets.length,
+          run: verifiersRun,
+          skipped: ep.verifierPackets.length - verifiersRun,
+          packets: verifierReports,
+          results: verifications,
+        }
+      : undefined,
     startedAt,
     endedAt,
     generatedAt: endedAt,
@@ -248,5 +297,41 @@ export async function executeApprovedPlan(approvedRaw: unknown, options: RunOpti
     reportFiles: written.written.map((w) => storage.resolve(w)),
     deferredReports: written.deferred,
     exitCode,
+  };
+}
+
+/**
+ * Maps a verifier packet outcome to a verification status for one finding. Only a deterministic re-run that
+ * fails at the same step is `confirmed`; anything that rests on a model is at most `likely`.
+ */
+function verificationFor(
+  finding: Finding,
+  verifier: WorkPacket,
+  run: PacketRunResult,
+  completedAt: string,
+): VerificationResult {
+  const failed = run.report.outcome === "failed";
+  const agentic = verifier.mode === "agentic";
+  const sameStep = run.findings.some((f) => f.stepIndex === finding.stepIndex);
+  const status: VerificationResult["status"] = !failed
+    ? "unverified"
+    : !agentic && sameStep
+      ? "confirmed"
+      : "likely";
+  const notes = !failed
+    ? `Verifier ${verifier.packetId} ended ${run.report.outcome}${run.report.outcomeReason ? `: ${run.report.outcomeReason}` : ""}; the failure was not reproduced.`
+    : agentic
+      ? `A model-driven verifier reproduced a failure. This is a probabilistic confirmation, not a deterministic one.`
+      : sameStep
+        ? `The verifier re-ran the approved steps in a fresh browser and failed at the same step ${finding.stepIndex}.`
+        : `The verifier failed, but not at step ${finding.stepIndex}; treated as likely.`;
+  return {
+    verificationId: newId("verif"),
+    findingId: finding.findingId,
+    verifierPacketId: verifier.packetId,
+    status,
+    evidence: failed ? run.findings.flatMap((f) => f.evidence).slice(0, 10) : [],
+    notes,
+    completedAt,
   };
 }

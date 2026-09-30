@@ -49,7 +49,18 @@ export function verifyExecutionPlanIntegrity(ep: ExecutionPlan): void {
     throw new IntegrityError("execution plan failed schema validation", {
       issues: formatZodIssues(parsed.error),
     });
-  for (const packet of ep.workPackets) {
+  const primaryIds = new Set(ep.workPackets.map((p) => p.packetId));
+  const verified = new Set<string>();
+  for (const v of ep.verifierPackets ?? []) {
+    if (v.role !== "verifier" || !v.verifierOf || !primaryIds.has(v.verifierOf))
+      throw new IntegrityError(`verifier packet ${v.packetId} does not verify a primary packet`);
+    if (verified.has(v.verifierOf))
+      throw new IntegrityError(`primary packet ${v.verifierOf} has more than one verifier`);
+    verified.add(v.verifierOf);
+  }
+  if (ep.workPackets.some((p) => p.role === "verifier" || p.verifierOf))
+    throw new IntegrityError("verifier packets must be reserved, not primary (no recursive verification)");
+  for (const packet of [...ep.workPackets, ...(ep.verifierPackets ?? [])]) {
     if (computeWorkPacketHash(packet) !== packet.workPacketHash) {
       throw new IntegrityError(`work packet ${packet.packetId} was modified (hash mismatch)`);
     }

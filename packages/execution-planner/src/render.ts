@@ -40,6 +40,14 @@ export function renderExecutionPlanReview(
   section("Mode", [ep.mode]);
   section("Scenarios", [String(s.scenarioCount)]);
   section("Work packets", [String(s.workPacketCount)]);
+  if (ep.verifierPackets?.length)
+    section("Conditional verifier packets (approved now, run only if a finding meets the threshold)", [
+      `${ep.verifierPackets.length} reserved; trigger: severity >= ${ep.reporting.verifySeverityAtOrAbove}`,
+      ...ep.verifierPackets.map(
+        (v) =>
+          `- ${v.packetId} verifies ${v.verifierOf}; model ${v.model ? `${v.model.provider}:${v.model.model}` : "none (deterministic re-run)"}; budget ${v.actionBudget} actions, ${v.timeoutMs}ms; fresh browser, replay disabled`,
+      ),
+    ]);
   section("Maximum concurrent work packets", [String(s.maxConcurrentWorkPackets)]);
   section("Maximum concurrent browser contexts", [String(s.maxConcurrentBrowserContexts)]);
   section(

@@ -8,6 +8,7 @@ import {
   HandoffSummarySchema,
   RunStateSchema,
   StepResultSummarySchema,
+  VerificationResultSchema,
   WorkPacketStateSchema,
 } from "./runtime.js";
 
@@ -107,6 +108,16 @@ export const RunReportSchema = z
       })
       .strict(),
     packets: z.array(PacketReportSchema),
+    verification: z
+      .object({
+        reserved: z.number().int(),
+        run: z.number().int(),
+        skipped: z.number().int(),
+        packets: z.array(PacketReportSchema),
+        results: z.array(VerificationResultSchema),
+      })
+      .strict()
+      .optional(),
     findings: z.array(FindingSchema),
     limitations: z.array(z.string()),
   })

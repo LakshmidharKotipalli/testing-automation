@@ -26,6 +26,17 @@ export function validatePlan(plan: TestPlan): ValidationReport {
       names.add(p.name);
     }
   }
+  if (plan.verification?.enabled && plan.mode === "agentic") {
+    const model = plan.models.overrides.verifier ?? plan.models.default;
+    if (!model || !["openrouter", "opencode-agent", "mock"].includes(model.provider))
+      errors.push(
+        "verification in agentic mode requires an openrouter, opencode-agent or mock verifier model",
+      );
+  }
+  if (plan.scenarios.some((s) => s.roles.includes("verifier")))
+    errors.push(
+      'the "verifier" role is reserved for reserved verifier packets and cannot be a scenario role',
+    );
   if (plan.mode === "agentic" && plan.llm.strategy === "fallback-only")
     errors.push("agentic mode requires guided LLM policy");
   const ids = new Set<string>();

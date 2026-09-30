@@ -60,6 +60,20 @@ export const BrowserProjectSchema = z
   .strict();
 export type BrowserProject = z.infer<typeof BrowserProjectSchema>;
 
+/**
+ * Conditional verification. When enabled, one verifier packet is reserved per primary packet at preview and
+ * approved with the plan. It runs only if its source packet produced findings at or above
+ * reporting.verifySeverityAtOrAbove, in a fresh browser, with replay disabled, and is never itself verified.
+ */
+export const VerificationConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    timeoutMs: z.number().int().min(1000).optional(),
+    maxActions: z.number().int().min(1).max(10_000).optional(),
+  })
+  .strict();
+export type VerificationConfig = z.infer<typeof VerificationConfigSchema>;
+
 export const ExecutionConfigSchema = z
   .object({
     maxConcurrentAgents: z.number().int().min(1).max(64).default(4),
@@ -324,6 +338,7 @@ export const TestPlanSchema = z
     browser: BrowserConfigSchema.default({}),
     /** Optional named browser projects. Absent means one implicit project (the `browser` block). */
     browserProjects: z.array(BrowserProjectSchema).min(1).max(8).optional(),
+    verification: VerificationConfigSchema.optional(),
     execution: ExecutionConfigSchema.default({}),
     models: ModelAssignmentSchema.default({}),
     llm: LlmPolicySchema.default({}),

@@ -125,6 +125,15 @@ export function renderMarkdownReport(r: RunReport): string {
     }
   }
 
+  if (r.verification) {
+    L.push("## Verification", "");
+    L.push(
+      `- Reserved verifier packets: ${r.verification.reserved}; run: ${r.verification.run}; not needed or not run: ${r.verification.skipped}`,
+    );
+    for (const v of r.verification.results)
+      L.push(`- Finding \`${v.findingId}\` -> **${v.status}** by \`${v.verifierPacketId}\`: ${esc(v.notes)}`);
+    L.push("");
+  }
   L.push("## Findings", "");
   if (!r.findings.length) L.push("No findings.", "");
   for (const f of r.findings) {

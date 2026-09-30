@@ -69,6 +69,8 @@ export const WorkPacketSchema = z
     browser: BrowserConfigSchema,
     /** Present only when the plan declares browser projects. */
     projectName: z.string().optional(),
+    /** Set only on reserved verifier packets: the primary packet this one may verify. */
+    verifierOf: z.string().optional(),
     targetUrl: z.string().url(),
     allowedDomains: z.array(z.string()).min(1),
     allowSubdomains: z.boolean(),
@@ -101,6 +103,7 @@ export const ExecutionPlanSummarySchema = z
   .object({
     scenarioCount: z.number().int(),
     workPacketCount: z.number().int(),
+    verifierPacketCount: z.number().int().optional(),
     deterministicPackets: z.number().int(),
     llmCapablePackets: z.number().int(),
     maxConcurrentWorkPackets: z.number().int(),
@@ -162,6 +165,8 @@ export const ExecutionPlanSchema = z
     /** Hash-bound test data (literals or env references). Values are resolved only at run time. */
     testData: TestDataSchema,
     workPackets: z.array(WorkPacketSchema).min(1),
+    /** Reserved conditional verifier packets (at most one per primary packet). Absent when verification is off. */
+    verifierPackets: z.array(WorkPacketSchema).optional(),
     summary: ExecutionPlanSummarySchema,
     riskFlags: z.array(RiskFlagSchema),
     riskPlanHash: Sha256Schema.nullable(),

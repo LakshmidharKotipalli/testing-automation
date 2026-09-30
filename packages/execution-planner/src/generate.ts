@@ -111,6 +111,10 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
     }
   }
 
+  const verifierPackets: WorkPacket[] = plan.verification?.enabled
+    ? packets.map((source) => reserveVerifier(plan, source))
+    : [];
+
   const concurrency = Math.max(
     1,
     Math.min(options.parallel ?? plan.execution.maxConcurrentAgents, packets.length),
@@ -151,7 +155,8 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
     reporting: plan.reporting,
     testData: plan.testData,
     workPackets: packets,
-    summary: summarize(plan, packets, concurrency),
+    ...(verifierPackets.length ? { verifierPackets } : {}),
+    summary: summarize(plan, packets, concurrency, verifierPackets),
     riskFlags,
     riskPlanHash: riskFlags.length ? computeRiskPlanHash(riskFlags, executionPlanId) : null,
     requiresExplicitRiskApproval: riskFlags.length > 0,
@@ -173,7 +178,53 @@ export function generateExecutionPlan(plan: TestPlan, options: GenerateOptions =
   return ExecutionPlanSchema.parse(executionPlan);
 }
 
-function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): ExecutionPlanSummary {
+/**
+ * A verifier is a fresh-session repeat of its source packet under the verifier role: deterministic sources
+ * are re-run step for step, agentic sources are re-run by a model asked to reproduce the failure. It gets its
+ * own model, budgets and packet directory, and it can never have a verifier of its own.
+ */
+function reserveVerifier(plan: TestPlan, source: WorkPacket): WorkPacket {
+  const agentic = source.mode === "agentic";
+  const model = modelForRole(plan, "verifier") ?? source.model;
+  const packetId = `${source.packetId}-verifier`;
+  const v = plan.verification;
+  const packet: Omit<WorkPacket, "workPacketHash"> = {
+    ...omitHash(source),
+    packetId,
+    role: "verifier",
+    verifierOf: source.packetId,
+    model,
+    mode: agentic ? "agentic" : "deterministic",
+    ...(agentic
+      ? {
+          instructions: [
+            ...(source.instructions ?? []),
+            "You are an independent verifier. A previous run reported a failure for this mission. Reproduce it from scratch in this fresh browser and report the truth; report pass if it does not reproduce.",
+          ],
+        }
+      : {}),
+    llmPolicy: agentic
+      ? source.llmPolicy
+      : { ...source.llmPolicy, strategy: "disabled", maxCallsPerWorkPacket: 0 },
+    llmCallBudget: agentic ? source.llmCallBudget : 0,
+    timeoutMs: v?.timeoutMs ?? source.timeoutMs,
+    actionBudget: v?.maxActions ?? source.actionBudget,
+    artifactDir: `packets/${packetId}`,
+  };
+  return { ...packet, workPacketHash: computeWorkPacketHash(packet) };
+}
+
+function omitHash(p: WorkPacket): Omit<WorkPacket, "workPacketHash"> {
+  const { workPacketHash: _hash, ...rest } = p;
+  return rest;
+}
+
+function summarize(
+  plan: TestPlan,
+  packets: WorkPacket[],
+  concurrency: number,
+  verifiers: WorkPacket[] = [],
+): ExecutionPlanSummary {
   const cp = plan.contextLifecycle;
   let maxInstances = 0;
   let handoffs = 0;
@@ -201,13 +252,14 @@ function summarize(plan: TestPlan, packets: WorkPacket[], concurrency: number): 
   return {
     scenarioCount: plan.scenarios.length,
     workPacketCount: packets.length,
+    ...(verifiers.length ? { verifierPacketCount: verifiers.length } : {}),
     deterministicPackets: packets.filter((p) => p.mode === "deterministic").length,
     llmCapablePackets: packets.filter((p) => p.mode !== "deterministic").length,
     maxConcurrentWorkPackets: concurrency,
     maxConcurrentBrowserContexts: concurrency,
-    maxBrowserActions: packets.reduce((n, p) => n + p.actionBudget, 0),
-    maxLlmCalls,
-    estimatedMaxTokens: packets.reduce(
+    maxBrowserActions: [...packets, ...verifiers].reduce((n, p) => n + p.actionBudget, 0),
+    maxLlmCalls: maxLlmCalls + verifiers.reduce((n, p) => n + p.llmCallBudget, 0),
+    estimatedMaxTokens: [...packets, ...verifiers].reduce(
       (n, p) => n + (p.mode === "agentic" ? p.agent!.maxTokens : p.llmCallBudget * plan.llm.maxTokensPerCall),
       0,
     ),

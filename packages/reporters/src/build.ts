@@ -14,6 +14,7 @@ export interface BuildReportInput {
   runState: RunState;
   packets: PacketReport[];
   findings: Finding[];
+  verification?: RunReport["verification"];
   startedAt: string;
   endedAt: string;
   generatedAt: string;
@@ -115,6 +116,7 @@ export function buildRunReport(input: BuildReportInput): RunReport {
       maxObservedConcurrency: input.maxObservedConcurrency,
     },
     packets,
+    ...(input.verification ? { verification: input.verification } : {}),
     findings: input.findings,
     limitations,
   };

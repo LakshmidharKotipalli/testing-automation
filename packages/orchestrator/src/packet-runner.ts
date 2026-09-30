@@ -67,6 +67,8 @@ export interface PacketRunnerDeps {
   redactor: Redactor;
   signal: AbortSignal;
   verifySeverityAtOrAbove: Severity;
+  /** Untrusted claims from the source packet, given to a verifier as data (never as instructions). */
+  verificationClaims?: unknown;
   /** Milestone 3 plugs in automatic replacement. Without it a rotation blocks the packet after the handoff. */
   replacementFactory?: ReplacementAgentFactory;
 }
@@ -233,6 +235,9 @@ export class PacketRunner {
     handoff?: unknown,
   ): ScriptedAgent | LlmAgent | OpenCodeAgentDriver {
     if (this.packet.mode !== "agentic") return new ScriptedAgent(instance, this.packet, this.deps.clock);
+    handoff ??= this.deps.verificationClaims
+      ? { untrustedFindingClaims: this.deps.verificationClaims }
+      : undefined;
     const model = this.packet.model;
     if (!model) throw new GatewayBlocked("agentic_model_required");
     const env = this.deps.env ?? process.env;
@@ -472,7 +477,9 @@ export class PacketRunner {
   ): Finding {
     const severity: Severity = this.packet.priority;
     const red = this.deps.redactor;
-    const needsVerification = SEVERITY_RANK[severity] >= SEVERITY_RANK[this.deps.verifySeverityAtOrAbove];
+    const needsVerification =
+      this.packet.role !== "verifier" &&
+      SEVERITY_RANK[severity] >= SEVERITY_RANK[this.deps.verifySeverityAtOrAbove];
     const normalizedActual = (actual ?? "").replace(/\d+ms/g, "Nms").slice(0, 80);
     const finding: Finding = {
       findingId: newId("finding"),
