@@ -359,7 +359,3 @@ pnpm build       # tsc per package, topological order
 ## Troubleshooting
 
 See [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## License
-
-MIT
