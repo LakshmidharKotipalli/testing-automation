@@ -85,27 +85,27 @@ For CI, `--yes` records a noninteractive approval and refuses plans with risky s
 
 ## Documentation
 
-| Topic | Doc |
-|---|---|
-| Configuration (`.env`) | [docs/configuration.md](docs/configuration.md) |
-| Plan format and prompt grammar | [docs/test-plan-format.md](docs/test-plan-format.md) |
-| Approval and risk approval | [docs/approval-flow.md](docs/approval-flow.md) |
+| Topic                          | Doc                                                                                                      |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Configuration (`.env`)         | [docs/configuration.md](docs/configuration.md)                                                           |
+| Plan format and prompt grammar | [docs/test-plan-format.md](docs/test-plan-format.md)                                                     |
+| Approval and risk approval     | [docs/approval-flow.md](docs/approval-flow.md)                                                           |
 | Context lifecycle and handoffs | [docs/context-lifecycle.md](docs/context-lifecycle.md), [docs/handoff-format.md](docs/handoff-format.md) |
-| Reports and artifacts | [docs/reports.md](docs/reports.md) |
-| OpenCode support | [docs/opencode.md](docs/opencode.md) |
-| Troubleshooting | [docs/troubleshooting.md](docs/troubleshooting.md) |
+| Reports and artifacts          | [docs/reports.md](docs/reports.md)                                                                       |
+| OpenCode support               | [docs/opencode.md](docs/opencode.md)                                                                     |
+| Troubleshooting                | [docs/troubleshooting.md](docs/troubleshooting.md)                                                       |
 
 ## Status
 
-| Area | Status |
-|---|---|
-| Approval-first deterministic core, checkpoints, handoffs, reports | Implemented |
-| Autonomous discovery mode | Implemented |
-| Guarded Playwright MCP execution, Chrome/Chromium matrix, replay | Implemented |
-| OpenRouter agentic execution and verifier packets | Implemented (OpenCode blocked pending verifiable isolation) |
-| Automatic replacement agents | Planned (interfaces in place) |
-| Accessibility (axe) and overflow checks, HTML/JUnit reports | Deferred |
-| Dashboard UI | Planned |
+| Area                                                              | Status                                                      |
+| ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| Approval-first deterministic core, checkpoints, handoffs, reports | Implemented                                                 |
+| Autonomous discovery mode                                         | Implemented                                                 |
+| Guarded Playwright MCP execution, Chrome/Chromium matrix, replay  | Implemented                                                 |
+| OpenRouter agentic execution and verifier packets                 | Implemented (OpenCode blocked pending verifiable isolation) |
+| Automatic replacement agents                                      | Planned (interfaces in place)                               |
+| Accessibility (axe) and overflow checks, HTML/JUnit reports       | Deferred                                                    |
+| Dashboard UI                                                      | Planned                                                     |
 
 ## Development
 
